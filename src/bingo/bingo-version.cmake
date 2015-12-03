@@ -1,0 +1,1 @@
+SET(BINGO_VERSION "1.7-beta4r3" CACHE INTERNAL "versions" FORCE)
