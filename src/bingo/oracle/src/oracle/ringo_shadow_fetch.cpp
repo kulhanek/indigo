@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -18,6 +18,8 @@
 
 #include "oracle/ringo_fetch_context.h"
 
+IMPL_ERROR(RingoShadowFetch, "ringo shadow fetch");
+
 RingoShadowFetch::RingoShadowFetch (RingoFetchContext &context) :
 _context(context)
 {
@@ -33,10 +35,20 @@ _context(context)
    _fetch_type = 0;
    _processed_rows = 0;
    _end = false;
+
+   _rowid.ptr()[0] = 0;
 }
 
 RingoShadowFetch::~RingoShadowFetch ()
 {
+}
+
+bool RingoShadowFetch::getLastRowid (OraRowidText &id)
+{
+   if (_rowid.ptr()[0] == 0)
+      return false;
+   memcpy(&id, &_rowid, sizeof(_rowid));
+   return true;
 }
 
 int RingoShadowFetch::getTotalCount (OracleEnv &env)

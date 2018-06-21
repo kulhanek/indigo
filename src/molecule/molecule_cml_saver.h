@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -15,10 +15,14 @@
 #ifndef __molecule_cml_saver_h__
 #define __molecule_cml_saver_h__
 
+class TiXmlDocument;
+class TiXmlElement;
+
 namespace indigo {
 
 class Molecule;
 class Output;
+class SGroup;
 
 class MoleculeCmlSaver
 {
@@ -28,13 +32,19 @@ public:
    void saveMolecule (Molecule &mol);
    bool skip_cml_tag; // skips <?xml> and <cml> tags
 
-   DEF_ERROR("molecule CML saver");
+   DECL_ERROR;
 
 protected:
+   void _addSgroupElement (TiXmlElement *elem, SGroup &sgroup);
+
    Molecule *_mol;
    Output   &_output;
 
+   TiXmlDocument * _doc;
+   TiXmlElement * _root;
+
 private:
+
    MoleculeCmlSaver (const MoleculeCmlSaver &); // no implicit copy
 };
 

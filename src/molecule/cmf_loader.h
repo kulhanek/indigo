@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -54,10 +54,19 @@ public:
    bool skip_stereocenters;
    bool skip_valence;
 
+   int version; // By default the latest version 2 is used
+
    Array<int> *atom_flags;
    Array<int> *bond_flags;
 
-   DEF_ERROR("CMF loader");
+   bool has_mapping;
+   CP_DECL;
+   TL_CP_DECL(Array<int>, atom_mapping_to_restore);
+   TL_CP_DECL(Array<int>, inv_atom_mapping_to_restore);
+   TL_CP_DECL(Array<int>, bond_mapping_to_restore);
+   TL_CP_DECL(Array<int>, inv_bond_mapping_to_restore);
+
+   DECL_ERROR;
 protected:
 
    struct _AtomDesc
@@ -115,10 +124,10 @@ protected:
 
    void _readExtSection (Molecule &mol);
    void _readSGroup (int code, Molecule &mol);
-   void _readGeneralSGroup (BaseMolecule::SGroup &sgroup);
+   void _readGeneralSGroup (SGroup &sgroup);
 
-   void _readSGroupXYZ (Scanner &scanner, int code, int idx_array[5], Molecule &mol, const CmfSaver::VecRange &range);
-   void _readBaseSGroupXyz (Scanner &scanner, BaseMolecule::SGroup &sgroup, const CmfSaver::VecRange &range);
+   void _readSGroupXYZ (Scanner &scanner, int code, Molecule &mol, const CmfSaver::VecRange &range);
+   void _readBaseSGroupXyz (Scanner &scanner, SGroup &sgroup, const CmfSaver::VecRange &range);
 
    void _readString (Array<char> &dest);
    void _readUIntArray (Array<int> &dest);

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -55,9 +55,17 @@ qword _ProfilingTimer::getTime () const
    return nanoClock() - _start_time;
 }
 
+float _ProfilingTimer::getTimeSec () const
+{
+   return nanoHowManySeconds(getTime());
+}
+
+
 //
 // Profiling functionality
 //
+
+IMPL_ERROR(ProfilingSystem, "Profiling system");
 
 namespace indigo
 {

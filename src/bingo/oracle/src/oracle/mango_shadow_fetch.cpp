@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -23,6 +23,8 @@
 #include "oracle/mango_fetch_context.h"
 #include "base_cpp/profiling.h"
 
+IMPL_ERROR(MangoShadowFetch, "mango shadow fetch");
+
 MangoShadowFetch::MangoShadowFetch (MangoFetchContext &context) :
 _context(context)
 {
@@ -41,6 +43,8 @@ _context(context)
    _fetch_type = 0;
    _processed_rows = 0;
    _end = false;
+
+   _rowid.ptr()[0] = 0;
 }
 
 MangoShadowFetch::~MangoShadowFetch ()
@@ -57,6 +61,14 @@ int MangoShadowFetch::getTotalCount (OracleEnv &env)
    }
 
    return _total_count;
+}
+
+bool MangoShadowFetch::getLastRowid (OraRowidText &id)
+{
+   if (_rowid.ptr()[0] == 0)
+      return false;
+   memcpy(&id, &_rowid, sizeof(_rowid));
+   return true;
 }
 
 int MangoShadowFetch::countOracleBlocks (OracleEnv &env)

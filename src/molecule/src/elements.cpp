@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -25,6 +25,8 @@
 using namespace indigo;
 
 Element Element::_instance;
+
+IMPL_ERROR(Element, "element");
 
 Element::Element ()
 {
@@ -57,7 +59,7 @@ void Element::_initPeriodic (int element, const char *name, int period, int grou
 
 int Element::radicalElectrons (int radical)
 {
-   if (radical == RADICAL_DOUPLET)
+   if (radical == RADICAL_DOUBLET)
       return 1;
    if (radical == RADICAL_SINGLET || radical == RADICAL_TRIPLET)
       return 2;
@@ -401,6 +403,22 @@ int Element::calcValenceOfAromaticAtom (int elem, int charge, int n_arom, int mi
             return 3; // CID 20802344
       }
       // no other cases known from PubChem
+   }
+   else if (elem == ELEM_B)
+   {
+      if (n_arom == 2)
+      {
+         if (min_conn == 3) // one external bond
+            return 3; // CID 574072
+      }
+   }
+   else if (elem == ELEM_Si)
+   {
+      if (n_arom == 2)
+      {
+         if (min_conn == 3) // one external bond
+            return 4; // CID 18943170
+      }
    }
    
    return -1;
@@ -973,16 +991,22 @@ int Element::getDefaultIsotope (int element)
    return p.default_isotope;
 }
 
-float Element::getIsotopicComposition (int element, int isotope)
+int Element::getMostAbundantIsotope (int element)
+{
+   _Parameters &p = _instance._element_parameters[element];
+   return p.most_abundant_isotope;
+}
+
+bool Element::getIsotopicComposition (int element, int isotope, float &res)
 {
    _IsotopeValue *value = _instance._isotope_parameters_map.at2(
       _IsotopeKey(element, isotope));
 
    if (value == 0)
-      throw Error("getIsotopicComposition: isotope (%s, %d) not found",
-         toString(element), isotope);
+      return false;
 
-   return value->isotopic_composition;
+   res = value->isotopic_composition;
+   return true;
 }
 
 void Element::getMinMaxIsotopeIndex  (int element, int &min, int &max)
@@ -998,7 +1022,7 @@ float Element::getRelativeIsotopicMass (int element, int isotope)
       _IsotopeKey(element, isotope));
 
    if (value == 0)
-      throw Error("getRelativeAtomicMass: isotope (%s, %d) not found",
+      throw Error("getRelativeIsotopicMass: isotope (%s, %d) not found",
          toString(element), isotope);
 
    return value->mass;
@@ -1010,9 +1034,14 @@ void Element::_initDefaultIsotopes ()
    def_isotope_index.resize(_element_parameters.size());
    def_isotope_index.fffill();
 
+   Array<float> most_abundant_isotope_fraction;
+   most_abundant_isotope_fraction.resize(_element_parameters.size());
+   most_abundant_isotope_fraction.fill(0);
+
    for (int i = ELEM_MIN; i < _element_parameters.size(); i++)
    {
       _element_parameters[i].default_isotope = -1;
+      _element_parameters[i].most_abundant_isotope = -1;
       _element_parameters[i].min_isotope_index = 10000;
       _element_parameters[i].max_isotope_index = 0;
    }
@@ -1051,6 +1080,19 @@ void Element::_initDefaultIsotopes ()
          min_iso = key.isotope;
       if (max_iso < key.isotope)
          max_iso = key.isotope;
+
+
+      float most_abundance = 1e6;
+      if (_element_parameters[key.element].default_isotope != -1)
+      {
+         most_abundance = value.isotopic_composition;
+      }
+
+      if (value.isotopic_composition > most_abundant_isotope_fraction[key.element])
+      {
+         most_abundant_isotope_fraction[key.element] = value.isotopic_composition;
+         _element_parameters[key.element].most_abundant_isotope = key.isotope;
+      }
    }
 
    for (int i = ELEM_MIN; i < _element_parameters.size(); i++)
@@ -1059,6 +1101,8 @@ void Element::_initDefaultIsotopes ()
 
       if (element.natural_isotope_index != _IsotopeKey::NATURAL)
          element.default_isotope = element.natural_isotope_index;
+      if (element.most_abundant_isotope == -1)
+         element.most_abundant_isotope = element.default_isotope;
    }
 
    // Post-condition
@@ -1094,8 +1138,10 @@ int Element::electrons (int elem, int charge)
 int Element::getMaximumConnectivity (int elem, int charge, 
                                      int radical, bool use_d_orbital)
 {
-   int electrons = Element::electrons(elem, charge);
-   int vacant_orbitals = Element::orbitals(elem, use_d_orbital) - radical;
+   int rad_electrons = radicalElectrons(radical);
+   int electrons = Element::electrons(elem, charge) - rad_electrons;
+   int rad_orbitals = radicalOrbitals(radical);
+   int vacant_orbitals = Element::orbitals(elem, use_d_orbital) - rad_orbitals;
    if (electrons <= vacant_orbitals)
       return electrons;
    else 

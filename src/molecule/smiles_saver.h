@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -37,7 +37,7 @@ class Molecule;
 class DLLEXPORT SmilesSaver
 {
 public:
-   DEF_ERROR("SMILES saver");
+   DECL_ERROR;
 
    SmilesSaver (Output &output);
    ~SmilesSaver ();
@@ -62,6 +62,8 @@ public:
 
    bool smarts_mode;
    bool ignore_invalid_hcount;
+
+   const Array<int>& getSavedCisTransParities ();
 
 protected:
 
@@ -92,6 +94,8 @@ protected:
 
    void _writeCycleNumber (int n) const;
    void _writeAtom (int idx, bool aromatic, bool lowercase, int chirality) const;
+   void _writeChirality (int chirality) const;
+   void _writeCharge (int charge) const;
    void _writeSmartsAtom (int idx, QueryMolecule::Atom *atom, int chirality, int depth, bool has_or_parent) const;
    void _writeSmartsBond (int idx, QueryMolecule::Bond *bond) const;
    void _markCisTrans ();
@@ -104,6 +108,9 @@ protected:
    void _writePseudoAtoms ();
    void _writeHighlighting ();
    bool _shouldWriteAromaticBond (int bond_idx);
+   void _startExtension ();
+
+   void _filterCisTransParity ();
 
    int _countRBonds ();
 
@@ -117,6 +124,7 @@ protected:
       int saved; // 0 -- not saved; 1 -- goes 'up' from begin to end; 2 -- goes 'down'
    };
 
+   CP_DECL;
    TL_CP_DECL(Pool<List<int>::Elem>, _neipool);
    TL_CP_DECL(ObjArray<_Atom>, _atoms);
    TL_CP_DECL(Array<int>, _hcount);
@@ -143,6 +151,9 @@ protected:
    TL_CP_DECL(Array<int>, _complicated_cistrans);
    // single bonds that can not be written as slashes; see item 2 above
    TL_CP_DECL(Array<int>, _ban_slashes);
+   // array with cis-trans parity marks
+   // 0 means ignored
+   TL_CP_DECL(Array<int>, _cis_trans_parity);
 
    // This flag does not necessarily mean "any of _complicated_cistrans == 1".
    // If all _complicated_cistrans are actually ring CIS bonds, then the flag

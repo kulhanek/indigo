@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -13,6 +13,7 @@
  ***************************************************************************/
 
 #include "indigo_internal.h"
+#include "base_cpp/cancellation_handler.h"
 #include "layout/reaction_layout.h"
 #include "layout/molecule_layout.h"
 #include "reaction/base_reaction.h"
@@ -28,9 +29,12 @@ CEXPORT int indigoLayout (int object)
 
       if (IndigoBaseMolecule::is(obj) || obj.type == IndigoObject::SUBMOLECULE) {
          BaseMolecule &mol = obj.getBaseMolecule();
-         MoleculeLayout ml(mol);
+         MoleculeLayout ml(mol, self.smart_layout);
          ml.max_iterations = self.layout_max_iterations;
          ml.bond_length = 1.6f;
+
+         TimeoutCancellationHandler cancellation(self.cancellation_timeout);
+         ml.setCancellationHandler(&cancellation);
 
          Filter f;
          if (obj.type == IndigoObject::SUBMOLECULE)
@@ -60,11 +64,7 @@ CEXPORT int indigoLayout (int object)
                for (int j = rgp.fragments.begin(); j != rgp.fragments.end();
                         j = rgp.fragments.next(j))
                {
-                  MoleculeLayout fragml(*rgp.fragments[j]);
-
-                  fragml.max_iterations = self.layout_max_iterations;
-                  fragml.bond_length = 1.6f;
-                  fragml.make();
+                  rgp.fragments[j]->clearBondDirections();
                   rgp.fragments[j]->stereocenters.markBonds();
                   rgp.fragments[j]->allene_stereo.markBonds();
                }
@@ -72,7 +72,7 @@ CEXPORT int indigoLayout (int object)
          }
       } else if (IndigoBaseReaction::is(obj)) {
          BaseReaction &rxn = obj.getBaseReaction();
-         ReactionLayout rl(rxn);
+         ReactionLayout rl(rxn, self.smart_layout);
          rl.max_iterations = self.layout_max_iterations;
          rl.bond_length = 1.6f;
          rl.make();

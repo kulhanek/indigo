@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -136,21 +136,23 @@ enum
    ELEM_Rf,
    ELEM_MAX,
 
-   ELEM_PSEUDO, // pseudoatom
-   ELEM_RSITE  // 'R' atom
+   ELEM_PSEUDO,   // pseudoatom
+   ELEM_RSITE,    // 'R' atom
+   ELEM_TEMPLATE, // template 
+   ELEM_ATTPOINT  // attachment point
 };
 
 enum
 {
    RADICAL_SINGLET = 1,
-   RADICAL_DOUPLET = 2,
+   RADICAL_DOUBLET = 2,
    RADICAL_TRIPLET = 3
 };
 
 class DLLEXPORT Element
 {
 public:
-   DEF_ERROR("element");
+   DECL_ERROR;
 
    static const char * toString (int element);
    static int fromString (const char *name);
@@ -179,10 +181,13 @@ public:
 
    static bool isHalogen (int element);
 
+   // Returns isotope that has weight most close to the atomic weight
    static int   getDefaultIsotope       (int element);
+   // Return most abundant isotope
+   static int   getMostAbundantIsotope  (int element);
    static float getRelativeIsotopicMass (int element, int isotope);
    static float getStandardAtomicWeight (int element);
-   static float getIsotopicComposition  (int element, int isotope);
+   static bool  getIsotopicComposition  (int element, int isotope, float &res);
    static void  getMinMaxIsotopeIndex   (int element, int &min, int &max);
 
    static bool  canBeAromatic (int element);
@@ -219,8 +224,10 @@ private:
       int period;
       
       int natural_isotope_index; // Can be ElementIsotope::NATURAL or anything else 
-      // Isotope with highest mole fraction
+      // Isotope with mass most close to the atomic weight
       int default_isotope;
+      // Isotope with highest mole fraction
+      int most_abundant_isotope;
       // Minimum and maximum isotope index
       int min_isotope_index, max_isotope_index;
 

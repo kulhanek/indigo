@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -19,13 +19,17 @@
 #include "base_cpp/scanner.h"
 #include "lzw/lzw_dictionary.h"
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
+
 namespace indigo {
 
-class LzwDecoder
+class DLLEXPORT LzwDecoder
 {
 public:
-
-   DEF_ERROR("LZW decoder");
+   DECL_ERROR;
 
    LzwDecoder( LzwDict &NewDict, Scanner &NewIn );
 
@@ -39,6 +43,7 @@ private:
 
    BitInWorker _bitin;
 
+   CP_DECL;
    TL_CP_DECL(Array<byte>, _symbolsBuf);
 
    // no implicit copy
@@ -61,11 +66,15 @@ public:
 
    virtual byte readByte ();
 
-   DEF_ERROR("LZW-output");
+   DECL_ERROR;
 private:
    LzwDecoder &_decoder;
 };
 
 }
+
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 #endif

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -137,9 +137,23 @@ CEXPORT int bingoSetConfigInt (const char *name, int value)
       else if (strcasecmp(name, "ignore-closing-bond-direction-mismatch") == 0 || strcasecmp(name, "ignore_closing_bond_direction_mismatch") == 0)
          self.bingo_context->ignore_closing_bond_direction_mismatch = (value != 0);
       else if (strcasecmp(name, "nthreads") == 0)
-      {
          self.bingo_context->nthreads = value;
-      }
+      else if (strcasecmp(name, "timeout") == 0)
+         self.bingo_context->timeout = value;
+      else if (strcasecmp(name, "ignore-cistrans-errors") == 0 || strcasecmp(name, "ignore_cistrans_errors") == 0)
+         self.bingo_context->ignore_cistrans_errors = (value != 0);
+      else if (strcasecmp(name, "ignore-stereocenter-errors") == 0 || strcasecmp(name, "ignore_stereocenter_errors") == 0)
+         self.bingo_context->ignore_stereocenter_errors = (value != 0);
+      else if (strcasecmp(name, "stereochemistry-bidirectional-mode") == 0 || strcasecmp(name, "stereochemistry_bidirectional_mode") == 0)
+         self.bingo_context->stereochemistry_bidirectional_mode = (value != 0);
+      else if (strcasecmp(name, "stereochemistry-detect-haworth-projection") == 0 || strcasecmp(name, "stereochemistry_detect_haworth_projection") == 0)
+         self.bingo_context->stereochemistry_detect_haworth_projection = (value != 0);
+      else if (strcasecmp(name, "allow-non-unique-dearomatization") == 0 || strcasecmp(name, "allow_non_unique_dearomatization") == 0)
+         self.bingo_context->allow_non_unique_dearomatization = (value != 0);
+      else if (strcasecmp(name, "zero-unknown-aromatic-hydrogens") == 0 || strcasecmp(name, "zero_unknown_aromatic_hydrogens") == 0)
+         self.bingo_context->zero_unknown_aromatic_hydrogens = (value != 0);
+      else if (strcasecmp(name, "reject-invalid-structures") == 0 || strcasecmp(name, "reject_invalid_structures") == 0)
+         self.bingo_context->reject_invalid_structures = (value != 0);
       else
       {
          bool set = true;
@@ -181,6 +195,8 @@ CEXPORT int bingoGetConfigInt (const char *name, int *value)
 
       if (strcasecmp(name, "treat-x-as-pseudoatom") == 0 || strcasecmp(name, "treat_x_as_pseudoatom") == 0)
          *value = (int)self.bingo_context->treat_x_as_pseudoatom;
+      else if (strcasecmp(name, "ignore-closing-bond-direction-mismatch") == 0 || strcasecmp(name, "ignore_closing_bond_direction_mismatch") == 0)
+         *value = (int) self.bingo_context->ignore_closing_bond_direction_mismatch;
       else if (strcasecmp(name, "fp-size-bytes") == 0 || strcasecmp(name, "fp_size_bytes") == 0)
          *value = self.bingo_context->fp_parameters.fingerprintSize();
       else if (strcasecmp(name, "reaction-fp-size-bytes") == 0 || strcasecmp(name, "reaction_fp_size_bytes") == 0)
@@ -191,6 +207,22 @@ CEXPORT int bingoGetConfigInt (const char *name, int *value)
          *value = self.sim_screening_pass_mark;
       else if (strcasecmp(name, "nthreads") == 0)
          *value = self.bingo_context->nthreads;
+      else if (strcasecmp(name, "timeout") == 0)
+         *value = self.bingo_context->timeout;
+      else if (strcasecmp(name, "ignore-cistrans-errors") == 0 || strcasecmp(name, "ignore_cistrans_errors") == 0)
+         *value = (int)self.bingo_context->ignore_cistrans_errors;
+      else if (strcasecmp(name, "ignore-stereocenter-errors") == 0 || strcasecmp(name, "ignore_stereocenter_errors") == 0)
+         *value = (int)self.bingo_context->ignore_stereocenter_errors;
+      else if (strcasecmp(name, "stereochemistry-bidirectional-mode") == 0 || strcasecmp(name, "stereochemistry_bidirectional_mode") == 0)
+         *value = (int) self.bingo_context->stereochemistry_bidirectional_mode;
+      else if (strcasecmp(name, "stereochemistry-detect-haworth-projection") == 0 || strcasecmp(name, "stereochemistry_detect_haworth_projection") == 0)
+         *value = (int) self.bingo_context->stereochemistry_detect_haworth_projection;
+      else if (strcasecmp(name, "allow-non-unique-dearomatization") == 0 || strcasecmp(name, "allow_non_unique_dearomatization") == 0)
+         *value = (int)self.bingo_context->allow_non_unique_dearomatization;
+      else if (strcasecmp(name, "zero-unknown-aromatic-hydrogens") == 0 || strcasecmp(name, "zero_unknown_aromatic_hydrogens") == 0)
+         *value = (int)self.bingo_context->zero_unknown_aromatic_hydrogens;
+      else if (strcasecmp(name, "reject-invalid-structures") == 0 || strcasecmp(name, "reject_invalid_structures") == 0)
+         *value = (int) self.bingo_context->reject_invalid_structures;
       else
          throw BingoError("unknown parameter name: %s", name);
    }
@@ -345,9 +377,9 @@ CEXPORT const char * bingoImportGetPropertyValue (int idx) {
          throw BingoError("bingo import list has not been parsed yet");
       const char* property_name = self.import_properties.ref().at(idx);
       if(self.sdf_loader.get()) {
-         return self.sdf_loader->properties[property_name].ptr();
+         return self.sdf_loader->properties.at(property_name);
       } else if(self.rdf_loader.get()) {
-         return self.rdf_loader->properties[property_name].ptr();
+         return self.rdf_loader->properties.at(property_name);
       } else {
          throw BingoError("bingo import has not been initialized yet");
       }
@@ -403,7 +435,7 @@ CEXPORT const char * bingoSDFImportGetProperty (const char *param_name)
 {
    BINGO_BEGIN
    {
-      return self.sdf_loader->properties[param_name].ptr();
+      return self.sdf_loader->properties.at(param_name);
    }
    BINGO_END("", 0)
 }
@@ -453,7 +485,7 @@ CEXPORT const char * bingoRDFImportGetProperty (const char *param_name)
 {
    BINGO_BEGIN
    {
-      return self.rdf_loader->properties[param_name].ptr();
+      return self.rdf_loader->properties.at(param_name);
    }
    BINGO_END("", 0)
 }
@@ -681,7 +713,7 @@ CEXPORT int bingoSMILESImportClose ()
       self.file_scanner.free();
       self.smiles_scanner = 0;
    }
-   BINGO_END(-2, -2)
+   BINGO_END(0, -1)
 }
 
 CEXPORT int bingoSMILESImportEOF ()

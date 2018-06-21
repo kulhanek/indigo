@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -19,30 +19,37 @@
 #include "molecule/molecule_tautomer.h"
 #include "base_cpp/auto_ptr.h"
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
+
 namespace indigo {
 
 class Molecule;
 class AromaticityMatcher;
 
-class MoleculeTautomerMatcher
+class DLLEXPORT MoleculeTautomerMatcher
 {
 public:
-   DEF_ERROR("molecule tautomer matcher");
+   DECL_ERROR;
 
    bool highlight;
+
+   AromaticityOptions arom_options;
 
    MoleculeTautomerMatcher (Molecule &target, bool substructure);
 
    void setQuery (BaseMolecule &query);
 
    void setRulesList (const PtrArray<TautomerRule> *rules_list);
-   void setRules (int rules_set, bool force_hydrogens, bool ring_chain);
+   void setRules (int rules_set, bool force_hydrogens, bool ring_chain, TautomerMethod method);
 
    bool find ();
 
    const int * getQueryMapping ();
 
-   static void parseConditions (const char *tautomer_text, int &rules, bool &force_hydrogens, bool &ring_chain);
+   static void parseConditions (const char *tautomer_text, int &rules, bool &force_hydrogens, bool &ring_chain, TautomerMethod &method);
 
    static int countNonHydrogens (BaseMolecule &molecule);
 
@@ -55,6 +62,7 @@ protected:
    bool _substructure;
    bool _force_hydrogens;
    bool _ring_chain;
+   TautomerMethod _method;
    int  _rules;
 
    const PtrArray<TautomerRule> *_rules_list;
@@ -70,5 +78,9 @@ protected:
 };
 
 }
+
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 #endif

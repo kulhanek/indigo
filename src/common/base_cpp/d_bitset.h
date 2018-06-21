@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -23,6 +23,8 @@
 #endif
 
 namespace indigo {
+
+DECL_EXCEPTION(DbitsetError);
 
 class DLLEXPORT Dbitset {
    //bitsets are packed into arrays of "words."  Currently a word is
@@ -62,12 +64,13 @@ private:
 
    Array<qword> _words;
 
-   Dbitset(const Dbitset& ); //no implicit copy
+   Dbitset(const Dbitset&); //no implicit copy
+   Dbitset &operator = (const Dbitset&); //no implicit assign
 public:
    
    Dbitset();
    //creates a bit set whose initial size
-   Dbitset(int nbits);
+   explicit Dbitset(int nbits);
    ~Dbitset();
    
    //sets the bit at the specified index to the complement of its current value
@@ -101,6 +104,7 @@ public:
    //Returns true if the specified BitSet has any bits set to true
    //that are also set to true in this BitSet
    bool intersects(const Dbitset& set) const;
+   bool complements(const Dbitset& set) const;
    //Performs a logical AND of this target BitSet with the argument BitSet
    void andWith(const Dbitset& set);
    //Performs a logical OR of this target BitSet with the argument BitSet
@@ -169,9 +173,7 @@ public:
          Iterator(const Iterator&); //no implicit copy
       };
 
-
-
-   DEF_ERROR("Dynamic bitset");
+   DECL_TPL_ERROR(DbitsetError);
 };
 
 }

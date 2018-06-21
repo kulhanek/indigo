@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -24,6 +24,7 @@ class BaseMolecule;
 class Reaction;
 class Scanner;
 class Output;
+class RenderItemFactory;
 
 enum RENDER_MODE {RENDER_MOL, RENDER_RXN, RENDER_NONE};
 
@@ -36,6 +37,7 @@ public:
    void clearArrays ();
 
    float relativeThickness;
+   float bondLineWidthFactor;
    RENDER_MODE rmode;
 
    AutoPtr<BaseMolecule> mol;
@@ -53,8 +55,9 @@ public:
      
 class RenderParamInterface {
 public:
-   DEF_ERROR("render param interface");
+   DECL_ERROR;
    static void render (RenderParams& params);
+   static int multilineTextUnit (RenderItemFactory& factory, int type, const Array<char>& titleStr, const float spacing, const MultilineTextLayout::Alignment alignment);
 
 private:
    static void _prepareMolecule (RenderParams& params, BaseMolecule& bm);

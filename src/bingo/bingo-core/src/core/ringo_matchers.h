@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -57,14 +57,12 @@ public:
    void loadSMARTS (Scanner &scanner);
 
    bool preserve_bonds_on_highlighting;
-   bool treat_x_as_pseudoatom;
-   bool ignore_closing_bond_direction_mismatch;
    
    void getHighlightedTarget (Array<char> &buf);
 
    const byte * getQueryFingerprint ();
 
-   DEF_ERROR("reaction substructure");
+   DECL_ERROR;
 protected:
 
    BingoContext &_context;
@@ -93,7 +91,7 @@ class RingoAAM
 {
 
 public:
-   RingoAAM ();
+   RingoAAM(BingoContext &context);
 
    void parse (const char* mode);
 
@@ -103,12 +101,10 @@ public:
 
    void getResult (Array<char> &buf);
 
-   bool treat_x_as_pseudoatom;
-   bool ignore_closing_bond_direction_mismatch;
-
-   DEF_ERROR("ringo AAM");
+   DECL_ERROR;
 
 protected:
+   BingoContext &_context;
    Reaction _reaction;
 };
 
@@ -137,10 +133,7 @@ public:
 
    static dword calculateHash (Reaction &rxn);
 
-   bool treat_x_as_pseudoatom;
-   bool ignore_closing_bond_direction_mismatch;
-
-   DEF_ERROR("Ringo exact");
+   DECL_ERROR;
 protected:
    BingoContext &_context;
 

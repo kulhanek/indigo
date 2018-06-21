@@ -1,3 +1,5 @@
+#include "bingo_pg_fix_pre.h"
+
 extern "C" {
 #include "postgres.h"
 #include "fmgr.h"
@@ -8,9 +10,7 @@ extern "C" {
 #include "miscadmin.h"
 }
 
-#ifdef qsort
-#undef qsort
-#endif
+#include "bingo_pg_fix_post.h"
 
 #include "bingo_pg_search.h"
 #include "bingo_postgres.h"
@@ -20,20 +20,17 @@ extern "C" {
 #include "base_cpp/tlscont.h"
 
 extern "C" {
-PG_FUNCTION_INFO_V1(bingo_beginscan);
-PGDLLEXPORT Datum bingo_beginscan(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(bingo_beginscan);
 
-PG_FUNCTION_INFO_V1(bingo_gettuple);
-PGDLLEXPORT Datum bingo_gettuple(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(bingo_gettuple);
+/*
+ * Turn off bitmap scan
+ */
+// BINGO_FUNCTION_EXPORT(bingo_getbitmap);
 
-PG_FUNCTION_INFO_V1(bingo_getbitmap);
-PGDLLEXPORT Datum bingo_getbitmap(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(bingo_rescan);
 
-PG_FUNCTION_INFO_V1(bingo_rescan);
-PGDLLEXPORT Datum bingo_rescan(PG_FUNCTION_ARGS);
-
-PG_FUNCTION_INFO_V1(bingo_endscan);
-PGDLLEXPORT Datum bingo_endscan(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(bingo_endscan);
 }
 
 //#include <signal.h>
@@ -54,10 +51,10 @@ bingo_beginscan(PG_FUNCTION_ARGS) {
    Relation rel = (Relation) PG_GETARG_POINTER(0);
    int keysz = PG_GETARG_INT32(1);
 
-#if PG_VERSION_NUM / 100 == 901
+#if PG_VERSION_NUM / 100 == 900
+	ScanKey norderbys = (ScanKey) PG_GETARG_POINTER(2);
+#elif PG_VERSION_NUM / 100 >= 901 
    int norderbys = PG_GETARG_INT32(2);
-#elif PG_VERSION_NUM / 100 == 900
-   ScanKey norderbys = (ScanKey) PG_GETARG_POINTER(2);
 #else
    elog(ERROR, "unsupported version %s", PG_VERSION)
 #endif
@@ -65,15 +62,14 @@ bingo_beginscan(PG_FUNCTION_ARGS) {
    IndexScanDesc scan = RelationGetIndexScan(rel, keysz, norderbys);
 
    scan->opaque = 0;
+   BingoPgSearch* so = 0;
 
-//   old_handler = signal(SIGINT, &error_handler);
-   
    PG_BINGO_BEGIN
    {
       /*
        * Prepare search context
        */
-      BingoPgSearch* so = new BingoPgSearch(rel);
+      so = new BingoPgSearch(rel);
 
 
       /*
@@ -87,27 +83,36 @@ bingo_beginscan(PG_FUNCTION_ARGS) {
       BingoPgCommon::appendPath(index_schema);
       
    }
-   PG_BINGO_END;
-
-//   signal(SIGINT, old_handler);
+   PG_BINGO_HANDLE(delete so; scan->opaque=NULL);
 
    PG_RETURN_POINTER(scan);
 }
 
 /*
- *	Rescan an index relation
+ * Rescan an index relation
  */
 Datum
 bingo_rescan(PG_FUNCTION_ARGS) {
    IndexScanDesc scan = (IndexScanDesc) PG_GETARG_POINTER(0);
    ScanKey scankey = (ScanKey) PG_GETARG_POINTER(1);
 
-   /*
-    * Update scan key, if a new one is given
-    */
-   if (scankey && scan->numberOfKeys > 0) {
-      memmove(scan->keyData, scankey, scan->numberOfKeys * sizeof (ScanKeyData));
+   BingoPgSearch* so = 0;
+   PG_BINGO_BEGIN
+   {
+      /*
+       * Update scan key, if a new one is given
+       */
+      if (scankey && scan->numberOfKeys > 0) {
+         memmove(scan->keyData, scankey, scan->numberOfKeys * sizeof (ScanKeyData));
+      }
+
+      so = (BingoPgSearch*) scan->opaque;
+      if (so != NULL) {
+         so->prepareRescan(scan);
+      }
+
    }
+   PG_BINGO_HANDLE(delete so; scan->opaque=NULL);
 
    PG_RETURN_VOID();
 }
@@ -139,39 +144,39 @@ using namespace indigo;
 /*
  * Get all tuples at once
  */
-Datum
-bingo_getbitmap(PG_FUNCTION_ARGS) {
-   IndexScanDesc scan = (IndexScanDesc) PG_GETARG_POINTER(0);
-   TIDBitmap *tbm = (TIDBitmap *) PG_GETARG_POINTER(1);
-
-   qword item_size = 0;
-   BingoPgSearch* search_engine = (BingoPgSearch*) scan->opaque;
-   PG_BINGO_BEGIN
-   {
-      /*
-       * Create search engine
-       */
-      /*
-       * Fetch to the next item and add result to the bitmap
-       */
-      indigo::Array<ItemPointerData> found_items;
-      ItemPointer item_ptr;
-      do {
-         item_ptr = &found_items.push();
-      } while (search_engine->next(scan, item_ptr));
-      /*
-       * Pop the last element
-       */
-      found_items.pop();
-      item_size = found_items.size();
-      BINGO_PG_TRY {
-         tbm_add_tuples(tbm, found_items.ptr(), found_items.size(), false);
-      } BINGO_PG_HANDLE(throw BingoPgError("internal error: can not add bitmap solution: %s", message));
-   }
-   PG_BINGO_HANDLE(delete search_engine);
-
-   PG_RETURN_INT64(item_size);
-}
+//Datum
+//bingo_getbitmap(PG_FUNCTION_ARGS) {
+//   IndexScanDesc scan = (IndexScanDesc) PG_GETARG_POINTER(0);
+//   TIDBitmap *tbm = (TIDBitmap *) PG_GETARG_POINTER(1);
+//
+//   qword item_size = 0;
+//   BingoPgSearch* search_engine = (BingoPgSearch*) scan->opaque;
+//   PG_BINGO_BEGIN
+//   {
+//      /*
+//       * Create search engine
+//       */
+//      /*
+//       * Fetch to the next item and add result to the bitmap
+//       */
+//      indigo::Array<ItemPointerData> found_items;
+//      ItemPointer item_ptr;
+//      do {
+//         item_ptr = &found_items.push();
+//      } while (search_engine->next(scan, item_ptr));
+//      /*
+//       * Pop the last element
+//       */
+//      found_items.pop();
+//      item_size = found_items.size();
+//      BINGO_PG_TRY {
+//         tbm_add_tuples(tbm, found_items.ptr(), found_items.size(), false);
+//      } BINGO_PG_HANDLE(throw BingoPgError("internal error: can not add bitmap solution: %s", message));
+//   }
+//   PG_BINGO_HANDLE(delete search_engine);
+//
+//   PG_RETURN_INT64(item_size);
+//}
 /*
  * Get a tuples by a chain
  */
@@ -188,9 +193,6 @@ bingo_gettuple(PG_FUNCTION_ARGS) {
    PG_BINGO_BEGIN
    {
       scan->xs_recheck = false;
-      /*
-       * Get search engine
-       */
       /*
        * Fetch to the next item
        */

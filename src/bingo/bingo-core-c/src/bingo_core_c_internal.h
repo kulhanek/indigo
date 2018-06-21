@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -125,7 +125,9 @@ public:
    catch (MoleculeCisTrans::Error &e) { action;} \
    catch (SmilesLoader::Error &e) { action;} \
    catch (Molecule::Error &e) { action;} \
-   catch (MoleculeAutoLoader::Error &e) { action;}
+   catch (MoleculeAutoLoader::Error &e) { action;} \
+   catch (EmbeddingEnumerator::TimeoutException &e) { action;} \
+   catch (DearomatizationsGroups::Error&e) {action;}
 
    //catch (IcmLoader::Error &e) { action;} \
 

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -17,6 +17,8 @@
 
 #include "base_cpp/red_black.h"
 #include "base_cpp/os_sync_wrapper.h"
+
+#include <sstream>
 
 using namespace indigo;
 
@@ -49,7 +51,7 @@ public:
    typedef void (*optf_xy_t) (int x, int y);
    OptionManager ();
 
-   DEF_ERROR("option manager");
+   DECL_ERROR;
    DEF_SET_OPT_HANDLER(String, optf_string_t, OPTION_STRING, hMapString)
    DEF_SET_OPT_HANDLER(Int, optf_int_t, OPTION_INT, hMapInt)
    DEF_SET_OPT_HANDLER(Bool, optf_bool_t, OPTION_BOOL, hMapBool)
@@ -86,6 +88,16 @@ protected:
    RedBlackStringMap<optf_float_t, false> hMapFloat;
    RedBlackStringMap<optf_color_t, false> hMapColor;
    RedBlackStringMap<optf_xy_t, false> hMapXY;
+
+   template <typename T> 
+   void callOptionHandlerT (const char *name, T arg)
+   {
+      // Convert to string for default string parsing
+      std::stringstream ss;
+      ss << arg;
+      std::string converted = ss.str();
+      callOptionHandler(name, converted.c_str());
+   }
 
 private:
    OptionManager (const OptionManager&);

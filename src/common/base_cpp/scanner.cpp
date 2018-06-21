@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <errno.h>
 #include <ctype.h>
 
 #include "base_c/defs.h"
@@ -23,6 +24,10 @@
 #include "reusable_obj_array.h"
 
 using namespace indigo;
+
+enum { MAX_LINE_LENGTH = 1048576 };
+
+IMPL_ERROR(Scanner, "scanner");
 
 Scanner::~Scanner ()
 {
@@ -64,12 +69,16 @@ int Scanner::readInt1 (void)
 
    buf.clear();
 
+   skipSpace();
+
    while (!isEOF())
    {
       c = readChar();
       if (!isdigit(c) && c != '-' && c != '+')
          break;
       buf.push(c);
+      if (buf.size() > MAX_LINE_LENGTH)
+         throw Error("Line length is too long. Probably the file format is not correct.");
    }
 
    buf.push(0);
@@ -93,8 +102,12 @@ int Scanner::readInt (void)
    if (c == '+' || c == '-' || isdigit(c))
       buf.push(c);
 
-   while (isdigit(lookNext()))
+   while (isdigit(lookNext())) 
+   {
       buf.push(readChar());
+      if (buf.size() > MAX_LINE_LENGTH)
+         throw Error("Line length is too long. Probably the file format is not correct.");
+   }
 
    buf.push(0);
 
@@ -140,7 +153,7 @@ bool Scanner::_readDouble (double &res, int max)
    bool minus = false;
    bool digit = false;
    bool e = false;
-   int denom = 1;
+   double denom = 0;
    int cnt = 0;
 
    while (1)
@@ -263,6 +276,9 @@ void Scanner::readWord (Array<char> &word, const char *delimiters)
          break;
 
       word.push(readChar());
+
+      if (word.size() > MAX_LINE_LENGTH)
+         throw Error("Line length is too long. Probably the file format is not correct.");
    } while (!isEOF());
 
    word.push(0);
@@ -343,10 +359,20 @@ void Scanner::skipSpace ()
       skip(1);
 }
 
+void Scanner::skipUntil (const char *delimiters)
+{
+   while (strchr(delimiters, lookNext()) == nullptr)
+      skip(1);
+}
+
 void Scanner::appendLine (Array<char> &out, bool append_zero)
 {
    if (isEOF())
       throw Error("appendLine(): end of stream");
+
+   if (out.size() > 0)
+      while (out.top() == 0)
+         out.pop();
 
    do
    {
@@ -362,6 +388,9 @@ void Scanner::appendLine (Array<char> &out, bool append_zero)
          break;
 
       out.push(c);
+
+      if (out.size() > MAX_LINE_LENGTH)
+         throw Error("Line length is too long. Probably the file format is not correct.");
    } while (!isEOF());
 
    if (append_zero)
@@ -498,7 +527,7 @@ void FileScanner::_init (Encoding filename_encoding, const char *filename)
    _file = openFile(filename_encoding, filename, "rb");
 
    if (_file == NULL)
-      throw Error("can't open file %s", filename);
+      throw Error("can't open file %s. Error: %s", filename, strerror(errno));
 
    fseek(_file, 0, SEEK_END);
    _file_len = ftell(_file);
@@ -643,6 +672,10 @@ BufferScanner::BufferScanner (const Array<char> &arr)
    _init(arr.ptr(), arr.size());
 }
 
+BufferScanner::~BufferScanner ()
+{
+}
+
 bool BufferScanner::isEOF ()
 {
    if (_size < 0)
@@ -772,6 +805,62 @@ int Scanner::findWord (ReusableObjArray< Array<char> > &words)
          while (pos[i] > 0 && words[i][pos[i]] != c)
             pos[i] = prefixes[i][pos[i] - 1];
          if (words[i][pos[i]] == c)
+            pos[i]++;
+
+         if (pos[i] == words[i].size())
+         {
+            seek(-words[i].size(), SEEK_CUR);
+            return i;
+         }
+      }
+   }
+
+   seek(pos_saved, SEEK_SET);
+   return -1;
+}
+
+bool Scanner::findWordIgnoreCase (const char *word)
+{
+   QS_DEF(ReusableObjArray< Array<char> >, strs);
+
+   strs.clear();
+   Array<char> &str = strs.push();
+
+   str.readString(word, false);
+   return findWordIgnoreCase(strs) == 0;
+}
+
+int Scanner::findWordIgnoreCase (ReusableObjArray< Array<char> > &words)
+{
+   if (isEOF())
+      return -1;
+   
+   QS_DEF(ReusableObjArray< Array<int> >, prefixes);
+   QS_DEF(Array<int>, pos);
+   int i;
+   int pos_saved = tell();
+   
+   prefixes.clear();
+   pos.clear();
+   
+   for (i = 0; i < words.size(); i++)
+   {
+      _prefixFunction(words[i], prefixes.push());
+      pos.push(0);
+   }
+
+   while (!isEOF())
+   {
+      int c = readChar();
+
+      for (i = 0; i < words.size(); i++)
+      {
+         int c1 = ::tolower(words[i][pos[i]]);
+         int c2 = ::tolower(c);
+
+         while (pos[i] > 0 && c1 != c2)
+            pos[i] = prefixes[i][pos[i] - 1];
+         if (c1 == c2)
             pos[i]++;
 
          if (pos[i] == words[i].size())

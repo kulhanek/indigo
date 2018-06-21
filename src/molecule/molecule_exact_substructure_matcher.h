@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -29,10 +29,14 @@ public:
    MoleculeExactSubstructureMatcher (Molecule &query, Molecule &target);
 
    bool find ();
+   bool find_withHydrogens ();
+
+   const int * getQueryMapping ();
+   void ignoreTargetAtom (int idx);
 
    dword flags;
 
-   DEF_ERROR("molecule exact substructure matcher");
+   DECL_ERROR;
 protected:
    Molecule &_query;
    Molecule &_target;

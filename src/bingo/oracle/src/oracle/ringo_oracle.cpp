@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -59,15 +59,6 @@ RingoOracleContext & RingoOracleContext::get (OracleEnv &env, int id, bool lock)
    if (config_reloaded)
    {
       roc->fingerprints.init(context, context.fp_parameters.fingerprintSizeExtOrdSim() * 2);
-
-      roc->ringoAAM.treat_x_as_pseudoatom = context.treat_x_as_pseudoatom;
-      roc->substructure.treat_x_as_pseudoatom = context.treat_x_as_pseudoatom;
-
-      roc->ringoAAM.ignore_closing_bond_direction_mismatch =
-              context.ignore_closing_bond_direction_mismatch;
-
-      roc->substructure.ignore_closing_bond_direction_mismatch =
-              context.ignore_closing_bond_direction_mismatch;
    }
 
    if (already == 0)

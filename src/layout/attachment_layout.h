@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -20,19 +20,22 @@
 
 namespace indigo {
 
+
+
 class AttachmentLayout
 {
 public:
-   explicit AttachmentLayout (const BiconnectedDecomposer &bc_decom,
-      const ObjArray<MoleculeLayoutGraph> &bc_components, 
+   explicit AttachmentLayout(const BiconnectedDecomposer &bc_decom,
+       const PtrArray<MoleculeLayoutGraph> &bc_components,
       const Array<int> &bc_tree, MoleculeLayoutGraph &graph, int src_vertex);
 
    double calculateEnergy ();
-   void  applyLayout ();
+   virtual void  applyLayout () = 0;
    void  markDrawnVertices ();
 
 public:   
    int _src_vertex;
+   CP_DECL;
    TL_CP_DECL(Array<int>, _src_vertex_map); // _src_vertex_map[j] - index of the vertex _src_vertex in j component
    TL_CP_DECL(Array<int>, _attached_bc);   // BCnumbers[j] - index of j component attached;
                                            // BCnumbers[size-1] - drawn
@@ -44,8 +47,26 @@ public:
    TL_CP_DECL(Array<Vec2f>, _layout);      // layout of new vertices
    double _energy;                         // current energy between drawn part and new part
 
-   const ObjArray<MoleculeLayoutGraph> &_bc_components;
+   const PtrArray<MoleculeLayoutGraph> &_bc_components;
    MoleculeLayoutGraph &_graph;
+};
+
+class AttachmentLayoutSimple : public AttachmentLayout {
+public:
+    explicit AttachmentLayoutSimple(const BiconnectedDecomposer &bc_decom,
+        const PtrArray<MoleculeLayoutGraph> &bc_components,
+        const Array<int> &bc_tree, MoleculeLayoutGraph &graph, int src_vertex);
+
+    void applyLayout();
+};
+
+class AttachmentLayoutSmart : public AttachmentLayout {
+public:
+    explicit AttachmentLayoutSmart(const BiconnectedDecomposer &bc_decom,
+        const PtrArray<MoleculeLayoutGraph> &bc_components,
+        const Array<int> &bc_tree, MoleculeLayoutGraph &graph, int src_vertex);
+
+    void applyLayout();
 };
 
 class LayoutChooser
@@ -61,6 +82,7 @@ private:
 
    int _n_components;
    double _cur_energy;
+   CP_DECL;
    TL_CP_DECL(Array<int>, _comp_permutation);
    TL_CP_DECL(Array<int>, _rest_numbers);
    AttachmentLayout &_layout;

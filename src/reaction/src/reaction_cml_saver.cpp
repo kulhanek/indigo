@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2011 GGA Software Services LLC
+ * Copyright (C) 2011 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -18,6 +18,8 @@
 #include "molecule/molecule_cml_saver.h"
 
 using namespace indigo;
+
+IMPL_ERROR(ReactionCmlSaver, "reaction CML saver");
 
 ReactionCmlSaver::ReactionCmlSaver (Output &output) : _output(output)
 {

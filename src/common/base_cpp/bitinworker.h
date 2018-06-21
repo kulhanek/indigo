@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -22,7 +22,7 @@ namespace indigo
 
 class Scanner;
 
-class BitInWorker
+class DLLEXPORT BitInWorker
 {
 public:
 

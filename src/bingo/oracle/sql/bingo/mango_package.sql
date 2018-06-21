@@ -1,4 +1,4 @@
--- Copyright (C) 2009-2011 GGA Software Services LLC
+-- Copyright (C) 2009-2015 EPAM Systems
 -- 
 -- This file is part of Indigo toolkit.
 -- 
@@ -167,15 +167,29 @@ CREATE OR REPLACE PACKAGE MangoPackage IS
    function Molfile (target in VARCHAR2) return CLOB;
    function Molfile (target in CLOB) return CLOB;
    function Molfile (target in BLOB) return CLOB;
+   function Molfile (target in VARCHAR2, options in VARCHAR2) return CLOB;
+   function Molfile (target in CLOB, options in VARCHAR2) return CLOB;
+   function Molfile (target in BLOB, options in VARCHAR2) return CLOB;
    function CML (target in VARCHAR2) return CLOB;
    function CML (target in CLOB) return CLOB;
    function CML (target in BLOB) return CLOB;
    function SMILES (target in VARCHAR2) return VARCHAR2;
    function SMILES (target in CLOB) return VARCHAR2;
    function SMILES (target in BLOB) return VARCHAR2;
+   function SMILES (target in VARCHAR2, options in VARCHAR2) return VARCHAR2;
+   function SMILES (target in CLOB, options in VARCHAR2) return VARCHAR2;
+   function SMILES (target in BLOB, options in VARCHAR2) return VARCHAR2;
    function CANSMILES (target in VARCHAR2) return VARCHAR2;
    function CANSMILES (target in CLOB) return VARCHAR2;
    function CANSMILES (target in BLOB) return VARCHAR2;
+   function InChI (target in VARCHAR2, options in VARCHAR2) return CLOB;
+   function InChI (target in CLOB, options in VARCHAR2) return CLOB;
+   function InChI (target in BLOB, options in VARCHAR2) return CLOB;
+   function InChIKey (inchi in VARCHAR2) return VARCHAR2;
+   function InChIKey (inchi in CLOB) return VARCHAR2;
+   function Fingerprint (target in VARCHAR2, options in VARCHAR2) return BLOB;
+   function Fingerprint (target in CLOB, options in VARCHAR2) return BLOB;
+   function Fingerprint (target in BLOB, options in VARCHAR2) return BLOB;
 END MangoPackage;
 /
 CREATE OR REPLACE PACKAGE BODY MangoPackage IS
@@ -653,15 +667,27 @@ CREATE OR REPLACE PACKAGE BODY MangoPackage IS
 
    function Molfile (target in VARCHAR2) return CLOB is
    begin
-      return Molfile_clob(to_clob(target));
+      return Molfile_clob(to_clob(target), NULL);
    end Molfile;
    function Molfile (target in CLOB) return CLOB is
    begin
-      return Molfile_clob(target);
+      return Molfile_clob(target, NULL);
    end Molfile;
    function Molfile (target in BLOB) return CLOB is
    begin
-      return Molfile_blob(target);
+      return Molfile_blob(target, NULL);
+   end Molfile;
+   function Molfile (target in VARCHAR2, options in VARCHAR2) return CLOB is
+   begin
+      return Molfile_clob(to_clob(target), options);
+   end Molfile;
+   function Molfile (target in CLOB, options in VARCHAR2) return CLOB is
+   begin
+      return Molfile_clob(target, options);
+   end Molfile;
+   function Molfile (target in BLOB, options in VARCHAR2) return CLOB is
+   begin
+      return Molfile_blob(target, options);
    end Molfile;
 
    function CML (target in VARCHAR2) return CLOB is
@@ -679,16 +705,63 @@ CREATE OR REPLACE PACKAGE BODY MangoPackage IS
 
    function SMILES (target in VARCHAR2) return VARCHAR2 is
    begin
-      return SMILES_clob(to_clob(target));
+      return SMILES_clob(to_clob(target), NULL);
    end SMILES;
    function SMILES (target in CLOB) return VARCHAR2 is
    begin
-      return SMILES_clob(target);
+      return SMILES_clob(target, NULL);
    end SMILES;
    function SMILES (target in BLOB) return VARCHAR2 is
    begin
-      return SMILES_blob(target);
+      return SMILES_blob(target, NULL);
    end SMILES;
+   function SMILES (target in VARCHAR2, options in VARCHAR2) return VARCHAR2 is
+   begin
+      return SMILES_clob(to_clob(target), options);
+   end SMILES;
+   function SMILES (target in CLOB, options in VARCHAR2) return VARCHAR2 is
+   begin
+      return SMILES_clob(target, options);
+   end SMILES;
+   function SMILES (target in BLOB, options in VARCHAR2) return VARCHAR2 is
+   begin
+      return SMILES_blob(target, options);
+   end SMILES;
+
+   function InChI (target in VARCHAR2, options in VARCHAR2) return CLOB is
+   begin
+      return InChI_clob(to_clob(target), options);
+   end InChI;
+   function InChI (target in CLOB, options in VARCHAR2) return CLOB is
+   begin
+      return InChI_clob(target, options);
+   end InChI;
+   function InChI (target in BLOB, options in VARCHAR2) return CLOB is
+   begin
+      return InChI_blob(target, options);
+   end InChI;
+   
+   function InChIKey (inchi in VARCHAR2) return VARCHAR2 is
+   begin
+      return InChIKey_clob(to_clob(inchi));
+   end InChIKey;
+   function InChIKey (inchi in CLOB) return VARCHAR2 is
+   begin
+      return InChIKey_clob(inchi);
+   end InChIKey;   
+
+   function Fingerprint (target in VARCHAR2, options in VARCHAR2) return BLOB is
+   begin
+      return Fingerprint_clob(to_clob(target), options);
+   end Fingerprint;
+   function Fingerprint (target in CLOB, options in VARCHAR2) return BLOB is
+   begin
+      return Fingerprint_clob(target, options);
+   end Fingerprint;
+   function Fingerprint (target in BLOB, options in VARCHAR2) return BLOB is
+   begin
+      return Fingerprint_blob(target, options);
+   end Fingerprint;
 
    function CANSMILES (target in VARCHAR2) return VARCHAR2 is
    begin

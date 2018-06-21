@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -40,6 +40,11 @@ public:
    int resetAtom (int idx, int label);
    
    void setPseudoAtom (int idx, const char *text);
+
+   void setTemplateAtom (int idx, const char *text);
+   void setTemplateAtomClass (int idx, const char *text);
+   void setTemplateAtomSeqid (int idx, int seq_id);
+   void setTemplateAtomDisplayOption (int idx, int contracted);
 
    int addBond (int beg, int end, int order);
    int addBond_Silent (int beg, int end, int order);
@@ -82,15 +87,22 @@ public:
 
    virtual bool isPseudoAtom (int idx);
    virtual const char * getPseudoAtom (int idx);
-   virtual bool isRSite (int atom_idx);
-   virtual int  getRSiteBits (int atom_idx);
-   virtual void allowRGroupOnRSite (int atom_idx, int rg_idx);
+
+   virtual bool isTemplateAtom (int idx);
+   virtual const char * getTemplateAtom (int idx);
+   virtual const int getTemplateAtomSeqid (int idx);
+   virtual const char * getTemplateAtomClass (int idx);
+   virtual const int getTemplateAtomDisplayOption (int idx);
+
+   virtual bool  isRSite (int atom_idx);
+   virtual dword getRSiteBits (int atom_idx);
+   virtual void  allowRGroupOnRSite (int atom_idx, int rg_idx);
            void setRSiteBits (int atom_idx, int bits);
 
    virtual bool bondStereoCare (int idx);
 
-   virtual bool aromatize ();
-   virtual bool dearomatize ();
+   virtual bool aromatize (const AromaticityOptions &options);
+   virtual bool dearomatize (const AromaticityOptions &options);
 
    int getImplicitH (int idx);
    int getImplicitH_NoThrow (int idx, int fallback);
@@ -98,6 +110,7 @@ public:
 
    int getAtomConnectivity (int idx);
    int getAtomConnectivity_noImplH (int idx);
+   int getAtomConnectivity_NoThrow (int idx, int fallback);
    int calcAtomConnectivity_noImplH (int idx);
    void calcAromaticAtomConnectivity (int idx, int &n_arom, int &min_conn);
    bool isSaturatedAtom (int idx);
@@ -120,7 +133,7 @@ public:
    static int matchAtomsCmp (Graph &g1, Graph &g2, int idx1, int idx2,
                              void *userdata);
 
-   void unfoldHydrogens (Array<int> *markers_out, int max_h_cnt = -1);
+   void unfoldHydrogens (Array<int> *markers_out, int max_h_cnt = -1, bool impl_h_no_throw = false);
 
    static void saveBondOrders (Molecule &mol, Array<int> &orders);
    static void loadBondOrders (Molecule &mol, Array<int> &orders);
@@ -142,6 +155,14 @@ public:
    
    virtual void invalidateAtom (int index, int mask);
 
+   bool restoreAromaticHydrogens (bool unambiguous_only = true);
+
+   bool standardize (const StandardizeOptions &options);
+
+   bool ionize (float ph, float ph_toll, const IonizeOptions &options);
+
+   bool isPossibleFischerProjection (const char* options);
+
 protected:
    struct _Atom
    {
@@ -155,6 +176,8 @@ protected:
       int  rgroup_bits;          // if number == ELEM_RSITE, these are 32 bits, each allowing
                                  // an r-group with corresponding number to go for this atom.
                                  // Simple 'R' atoms have this field equal to zero.
+      int  template_occur_idx;   // if number == ELEM_TEMPLATE, this is the corresponding
+                                 // index from _template_occurrences
    };
 
    Array<_Atom> _atoms;
@@ -167,6 +190,27 @@ protected:
    Array<int>   _radicals;
 
    StringPool _pseudo_atom_values;
+
+
+   struct _AttachOrder
+   {
+      int  ap_idx;
+      Array<char> ap_id;  
+   };
+
+   struct _TemplateOccurrence
+   {
+      int  name_idx;         // index in _template_names
+      int  class_idx;        // index in _template_classes
+      int  seq_id;           // sequence id
+      int  contracted;       // display option (-1 if undefined, 0 - expanded, 1 - contracted)
+
+      Array<_AttachOrder> order;   // attach order info
+   };
+   ObjPool<_TemplateOccurrence> _template_occurrences;
+
+   StringPool _template_classes;
+   StringPool _template_names;
 
    bool _aromatized;
 
@@ -182,9 +226,9 @@ protected:
    // information is cleared.
    void _validateVertexConnectivity   (int idx, bool validate);
 
-private:
-   Molecule (const Molecule &); // no implicit copy
+   void _invalidateVertexCache (int idx);
 
+private:
    int _getImplicitHForConnectivity (int idx, int conn, bool use_cache);
 };
 

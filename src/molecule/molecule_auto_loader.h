@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -16,6 +16,15 @@
 #define __molecule_auto_loader__
 
 #include "base_cpp/array.h"
+#include "base_cpp/tlscont.h"
+#include "base_cpp/red_black.h"
+#include "base_cpp/properties_map.h"
+#include "molecule/molecule_stereocenter_options.h"
+
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
 
 namespace indigo {
 
@@ -36,13 +45,18 @@ public:
    void loadMolecule (Molecule &mol);
    void loadQueryMolecule (QueryMolecule &qmol);
 
-   bool ignore_stereocenter_errors;
+   StereocentersOptions stereochemistry_options;
+   bool ignore_cistrans_errors;
    bool ignore_closing_bond_direction_mismatch;
    bool ignore_noncritical_query_features;
    bool treat_x_as_pseudoatom;
    bool skip_3d_chirality;
 
-   DEF_ERROR("molecule auto loader");
+   // Loaded properties
+   CP_DECL;
+   TL_CP_DECL(PropertiesMap, properties);
+
+   DECL_ERROR;
 
    static bool tryMDLCT (Scanner &scanner, Array<char> &outbuf);
 
@@ -59,5 +73,9 @@ private:
 };
 
 }
+
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 #endif

@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 2.8)
 
-project(BingoPostgres)
+project(BingoPostgres C CXX)
 
 include(../bingo-version.cmake)
-include(SetBuildParameters)
+include(ConfigureCommon)
 
-message(STATUS "BingoPostgres version is ${BINGO_VERSION}")
+message(STATUS "BingoPostgres version is ${BINGO_VERSION_EXT}")
 
 find_package(POSTGRES)
 if (NOT POSTGRES_FOUND)
@@ -26,9 +26,9 @@ if (MSVC)
 endif()
 
 if (NOT MSVC)                                                                                                                                                            
-	add_library(bingo-postgres-shared SHARED ${PG_AM_src} ${PG_AM_headers} ${PG_COMMON_src} ${PG_COMMON_headers} ${PG_CORE_src} ${PG_CORE_headers})
+	add_library(bingo-postgres-shared SHARED ${PG_AM_src} ${PG_AM_headers} ${PG_COMMON_src} ${PG_COMMON_headers} ${PG_CORE_src} ${PG_CORE_headers} ${Common_SOURCE_DIR}/hacks/memcpy.c $<TARGET_OBJECTS:graph> $<TARGET_OBJECTS:layout> $<TARGET_OBJECTS:molecule> $<TARGET_OBJECTS:common> $<TARGET_OBJECTS:reaction>)
 else()
-	add_library(bingo-postgres-shared SHARED ${PG_AM_src} ${PG_AM_headers} ${PG_COMMON_src} ${PG_COMMON_headers} ${PG_CORE_src} ${PG_CORE_headers} ${POSTGRES_INCLUDE_DIRS}/port/win32.h)
+	add_library(bingo-postgres-shared SHARED ${PG_AM_src} ${PG_AM_headers} ${PG_COMMON_src} ${PG_COMMON_headers} ${PG_CORE_src} ${PG_CORE_headers} ${POSTGRES_INCLUDE_DIRS}/port/win32.h $<TARGET_OBJECTS:graph> $<TARGET_OBJECTS:layout> $<TARGET_OBJECTS:molecule> $<TARGET_OBJECTS:common> $<TARGET_OBJECTS:reaction>)
 endif()
 SET_TARGET_PROPERTIES(bingo-postgres-shared PROPERTIES OUTPUT_NAME "bingo_postgres")
 SET_TARGET_PROPERTIES(bingo-postgres-shared PROPERTIES PREFIX "")
@@ -40,7 +40,15 @@ elseif(UNIX)
 	set_target_properties(bingo-postgres-shared PROPERTIES LINK_FLAGS "${LINK_FLAGS} -pthread")
 endif()
 
-target_link_libraries(bingo-postgres-shared bingo-core-c bingo-core molecule reaction layout)
+if (UNIX AND NOT APPLE)
+	message(STATUS "UNIX AND NOT APPLE")
+	if(${SUBSYSTEM_NAME} MATCHES "x64")
+		message(STATUS "SUBSYSTEM_NAME EQUALS x64")
+		set_target_properties(bingo-postgres-shared PROPERTIES LINK_FLAGS "${LINK_FLAGS} -pthread -Wl,--wrap=memcpy")
+	endif()
+endif()
+
+target_link_libraries(bingo-postgres-shared bingo-core-c bingo-core z tinyxml)
 if (MSVC)
 	target_link_libraries(bingo-postgres-shared ${POSTGRES_LIBRARY})
 endif()

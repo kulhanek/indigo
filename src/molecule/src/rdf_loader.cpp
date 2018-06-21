@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -19,7 +19,12 @@
 
 using namespace indigo;
 
+IMPL_ERROR(RdfLoader, "RDF loader");
+
+CP_DEF(RdfLoader);
+
 RdfLoader::RdfLoader(Scanner &scanner) :
+CP_INIT,
 TL_CP_GET(data),
 TL_CP_GET(properties),
 TL_CP_GET(_innerBuffer),
@@ -139,6 +144,9 @@ void RdfLoader::readNext() {
          output.printf("%s\n", _innerBuffer.ptr());
       }
 
+      if(data.size() > MAX_DATA_SIZE)
+         throw Error("data size exceeded the acceptable size %d bytes, Please check for correct file format", MAX_DATA_SIZE);
+
    } while(_readLine(_getScanner(), _innerBuffer));
 
    /*
@@ -168,11 +176,11 @@ void RdfLoader::readNext() {
          if(!_readLine(scanner, property_name)) {
             current_datum = 0;
          } else {
-            int idx = properties.findOrInsert(property_name.ptr());
+            properties.insert(property_name.ptr());
             /*
              * Define current value buffer
              */
-            current_datum = &properties.value(idx);
+            current_datum = &properties.valueBuf(property_name.ptr());
          }
          continue;
       }
@@ -223,8 +231,7 @@ bool RdfLoader::_readIdentifiers(bool from_begin) {
          /*
           * Insert new property key
           */
-         int idx = properties.findOrInsert("internal-regno");
-         Array<char>& val = properties.value(idx);
+         Array<char>& val = properties.insert("internal-regno");
          scanner.skipSpace();
          /*
           * Insert new property value
@@ -236,8 +243,7 @@ bool RdfLoader::_readIdentifiers(bool from_begin) {
          /*
           * Insert new property key
           */
-         int idx = properties.findOrInsert("external-regno");
-         Array<char>& val = properties.value(idx);
+         Array<char>& val = properties.insert("external-regno");
          scanner.skipSpace();
          /*
           * Insert new property value

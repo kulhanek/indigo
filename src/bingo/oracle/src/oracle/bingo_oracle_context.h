@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -18,6 +18,7 @@
 #include "base_cpp/exception.h"
 #include "core/bingo_context.h"
 #include "oracle/bingo_storage.h"
+#include "oracle/warnings_table.h"
 
 using namespace indigo;
 
@@ -36,6 +37,7 @@ public:
    virtual ~BingoOracleContext ();
    
    BingoStorage storage;
+   WarningsTable warnings;
 
    int sim_screening_pass_mark;
    int sub_screening_pass_mark;
@@ -45,6 +47,7 @@ public:
 
    bool configGetInt    (OracleEnv &env, const char *name, int &value);
    void configSetInt    (OracleEnv &env, const char *name, int value);
+   bool configGetIntDef (OracleEnv &env, const char *name, int &value, int default_value);
    bool configGetFloat  (OracleEnv &env, const char *name, float &value);
    void configSetFloat  (OracleEnv &env, const char *name, float value);
    bool configGetString (OracleEnv &env, const char *name, Array<char> &value);
@@ -70,6 +73,8 @@ public:
 
    void atomicMassLoad (OracleEnv &env);
    void atomicMassSave (OracleEnv &env);
+
+   void setLogTableWithColumns (OracleEnv &env, const char *tableWithColumns);
 
    void lock (OracleEnv &env);
    void unlock (OracleEnv &env);

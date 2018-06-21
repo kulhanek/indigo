@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -24,8 +24,13 @@
 
 using namespace indigo;
 
+IMPL_ERROR(BaseReactionSubstructureMatcher, "reaction substructure matcher");
+
+CP_DEF(BaseReactionSubstructureMatcher);
+
 BaseReactionSubstructureMatcher::BaseReactionSubstructureMatcher (Reaction &target) :
 _target(target),
+CP_INIT,
 TL_CP_GET(_matchers),
 TL_CP_GET(_aam_to_second_side_1),
 TL_CP_GET(_aam_to_second_side_2),
@@ -231,7 +236,10 @@ void BaseReactionSubstructureMatcher::_highlight ()
          _query->getBaseMolecule(_matchers[i]->_current_molecule_1), _matchers[i]->_current_core_1.ptr(), true);
 }
 
+CP_DEF(BaseReactionSubstructureMatcher::_Matcher);
+
 BaseReactionSubstructureMatcher::_Matcher::_Matcher (BaseReactionSubstructureMatcher &context) :
+CP_INIT,
 TL_CP_GET(_current_core_1),
 TL_CP_GET(_current_core_2),
 _context(context),
@@ -249,6 +257,7 @@ TL_CP_GET(_mapped_aams)
 }
 
 BaseReactionSubstructureMatcher::_Matcher::_Matcher (const BaseReactionSubstructureMatcher::_Matcher &other) :
+CP_INIT,
 TL_CP_GET(_current_core_1),
 TL_CP_GET(_current_core_2),
 _context(other._context),
@@ -410,8 +419,17 @@ int BaseReactionSubstructureMatcher::_Matcher::nextPair ()
       BaseMolecule &src_mol_1 = _context._query->getBaseMolecule(_selected_molecule_1);
       Molecule &src_mol_2 = _context._target.getMolecule(_selected_molecule_2);
 
-      int src_aam_1 = _context._query->findAamNumber(&src_mol_1, src_mol_1.vertexBegin());
-      int src_aam_2 = _context._target.findAamNumber(&src_mol_2, _context._matchers[_context._matchers.size() - 2]->_current_core_1[src_mol_1.vertexBegin()]);
+      int src_aam_1 = 0;
+      int src_aam_2 = 0;
+
+      Array<int> &prev_core_1 = _context._matchers[_context._matchers.size() - 2]->_current_core_1;
+      for (int i = src_mol_1.vertexBegin(); i < src_mol_1.vertexEnd(); i = src_mol_1.vertexNext(i))
+         if (prev_core_1[i] >= 0)
+         {
+            src_aam_1 = _context._query->getAAM(_selected_molecule_1, i);
+            src_aam_2 = _context._target.getAAM(_selected_molecule_2, prev_core_1[i]);
+            break;
+         }
 
       BaseMolecule &mol_1 = _context._query->getBaseMolecule(_current_molecule_1);
       Molecule &mol_2 = _context._target.getMolecule(_current_molecule_2);
@@ -447,7 +465,7 @@ bool BaseReactionSubstructureMatcher::_Matcher::_initEnumerator (BaseMolecule &m
 
    if (mol_1.isQueryMolecule() && _context.use_aromaticity_matcher &&
        AromaticityMatcher::isNecessary(mol_1.asQueryMolecule()))
-      _am.reset(new AromaticityMatcher(mol_1.asQueryMolecule(), mol_2));
+      _am.reset(new AromaticityMatcher(mol_1.asQueryMolecule(), mol_2, _context.arom_options));
    else
       _am.reset(0);
 

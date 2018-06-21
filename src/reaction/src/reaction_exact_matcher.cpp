@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -19,6 +19,8 @@
 #include "molecule/elements.h"
 
 using namespace indigo;
+
+IMPL_ERROR(ReactionExactMatcher, "reaction exact matcher");
 
 ReactionExactMatcher::ReactionExactMatcher (Reaction &query, Reaction &target) :
 BaseReactionSubstructureMatcher(target),

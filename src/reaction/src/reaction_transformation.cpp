@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -14,22 +14,33 @@
 
 #include "reaction/reaction_transformation.h"
 #include "reaction/reaction_enumerator_state.h"
+#include "layout/molecule_layout.h"
+#include "molecule/elements.h"
 
 using namespace indigo;
 
+IMPL_ERROR(ReactionTransformation, "Reaction transformation");
 
-ReactionTransformation::ReactionTransformation( void ) : TL_CP_GET(_merged_reaction), TL_CP_GET(_cur_monomer)
+CP_DEF(ReactionTransformation);
+
+ReactionTransformation::ReactionTransformation( void ) : CP_INIT, TL_CP_GET(_merged_reaction), TL_CP_GET(_cur_monomer), TL_CP_GET(_mapping)
 {
    _merged_reaction.clear();
    _cur_monomer.clear();
+   _mapping.clear();
+   layout_flag = true;
+   cancellation = 0;
+   smart_layout = false;
 }
 
-bool ReactionTransformation::transform( Molecule &molecule, QueryReaction &reaction )
+bool ReactionTransformation::transform( Molecule &molecule, QueryReaction &reaction, Array<int> *mapping )
 {
    _generateMergedReaction(reaction);
    
    int reactant_idx = _merged_reaction.reactantBegin();
    int product_idx = _merged_reaction.productBegin();
+
+   bool has_coord = BaseMolecule::hasCoord(molecule);
 
    QS_DEF(QueryMolecule, cur_full_product);
    cur_full_product.clear();
@@ -45,7 +56,10 @@ bool ReactionTransformation::transform( Molecule &molecule, QueryReaction &react
 
    int product_count = 0;
 
-   ReactionEnumeratorState re_state(_merged_reaction, cur_full_product, 
+   ReactionEnumeratorContext context;
+   context.arom_options = arom_options;
+
+   ReactionEnumeratorState re_state(context, _merged_reaction, cur_full_product, 
       cur_cur_monomer_aam_array, cur_smiles_array, cur_reaction_monomers, 
       product_count, cur_tubes_monomers);
    
@@ -63,27 +77,66 @@ bool ReactionTransformation::transform( Molecule &molecule, QueryReaction &react
    forbidden_atoms.clear_resize(_cur_monomer.vertexEnd());
    forbidden_atoms.zerofill();
 
-   while (re_state.performSingleTransformation(_cur_monomer, forbidden_atoms))
-      ;
+   QS_DEF(Array<int>, original_hydrogens);
+   original_hydrogens.clear();
+   for (int i = _cur_monomer.vertexBegin(); i != _cur_monomer.vertexEnd(); i = _cur_monomer.vertexNext(i))
+   {
+      if (_cur_monomer.getAtomNumber(i) == ELEM_H)
+         original_hydrogens.push(i);
+   }
+
+   bool need_layout = false;
+
+   bool transformed_flag = false;
+   while (re_state.performSingleTransformation(_cur_monomer, _mapping, forbidden_atoms, original_hydrogens, need_layout))
+      transformed_flag = true;
 
    molecule.clone(_cur_monomer, NULL, NULL);
 
-   return true;
+   if (has_coord)
+   {
+      if (need_layout)
+      {
+         if (layout_flag)
+         {
+            MoleculeLayout ml(molecule, smart_layout);
+            ml.setCancellationHandler(cancellation);
+            ml.make();
+         }
+         else
+            molecule.clearXyz();
+      }
+      else
+         molecule.stereocenters.markBonds();
+   }
+
+   mapping->copy(_mapping);
+
+   return transformed_flag;
 }
 
-bool ReactionTransformation::transform(ReusableObjArray<Molecule> &molecules, QueryReaction &reaction)
+bool ReactionTransformation::transform(ReusableObjArray<Molecule> &molecules, QueryReaction &reaction,
+                                       ReusableObjArray<Array<int>> *mapping_array)
 {
    for (int i = 0; i < molecules.size(); i++)
-      if (!transform(molecules[i], reaction))
+   {
+      Array<int> *mapping = 0;
+      if (mapping_array != 0)
+         mapping = &(mapping_array->at(i));
+
+      if (!transform(molecules[i], reaction, mapping))
          return false;
+   }
 
    return true;
 }
 
-void ReactionTransformation::_product_proc( Molecule &product, Array<int> &monomers_indices, 
+void ReactionTransformation::_product_proc( Molecule &product, Array<int> &monomers_indices, Array<int> &mapping, 
                                             void *userdata )
 {
    ReactionTransformation *rt = (ReactionTransformation *)userdata;
+
+   rt->_mapping.copy(mapping);
 
    rt->_cur_monomer.clone(product, NULL, NULL);
 
@@ -106,7 +159,7 @@ void ReactionTransformation::_mergeReactionComponents( QueryReaction &reaction, 
 
       merged_aam.concat(reaction.getAAMArray(i));
 
-      merged_molecule.mergeWithMolecule(molecule_i, NULL, NULL);
+      merged_molecule.mergeWithMolecule(molecule_i, NULL, 0);
    }
 }
 

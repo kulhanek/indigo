@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -16,6 +16,7 @@
 #define __ora_wrap_h__
 
 #include "base_cpp/array.h"
+#include "base_cpp/exception.h"
 
 // forward declaration
 struct OCIStmt;
@@ -35,18 +36,13 @@ class OracleLOB;
 class OracleRowID;
 class OracleRaw;
 
-class OracleError
+class OracleError : public Exception
 {
 public:
    explicit OracleError (OCIError *errhp, int oracle_rc, const char *message, int my_rc);
    explicit OracleError (int my_rc, const char *format, ...);
-   virtual ~OracleError ();
 
-   inline const char * getMessage () {return _message;}
    void raise (OracleLogger &logger, OCIExtProcContext *ctx);
-private:
-   char _message[1024];
-   int _my_rc;
 };
 
 class OracleLogger;

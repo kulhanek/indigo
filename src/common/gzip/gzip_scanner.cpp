@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -16,8 +16,13 @@
 
 using namespace indigo;
 
+IMPL_ERROR(GZipScanner, "GZip scanner");
+
+CP_DEF(GZipScanner);
+
 GZipScanner::GZipScanner (Scanner &source) :
 _source(source),
+CP_INIT,
 TL_CP_GET(_inbuf),
 TL_CP_GET(_outbuf)
 {
@@ -170,6 +175,12 @@ int GZipScanner::tell ()
 
 bool GZipScanner::isEOF ()
 {
+   if ((unsigned)_outbuf_start + _zstream.avail_out == (unsigned)_outbuf.size())
+   {
+      if (_eof)
+         return true;
+      _read(1, 0);
+   }
    return _eof && (unsigned)_outbuf_start + _zstream.avail_out == (unsigned)_outbuf.size();
 }
 

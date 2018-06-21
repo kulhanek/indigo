@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -154,12 +154,34 @@ void IndexingCommand::execute (OsCommandResult &result_)
                   index.init(*core->bingo_context);
                   index.prepare(scanner, output, lock_for_exclusive_access);
                }
-               catch (CmfSaver::Error &e) { exception_found = true; result.error_messages.add(e.message()); }
-               catch (CrfSaver::Error &e) { exception_found = true; result.error_messages.add(e.message()); }
+               catch (CmfSaver::Error &e)
+               {
+                  if (core->bingo_context->reject_invalid_structures)
+                     throw;
+                  exception_found = true; 
+                  result.error_messages.add(e.message());
+               }
+               catch (CrfSaver::Error &e)
+               {
+                  if (core->bingo_context->reject_invalid_structures)
+                     throw;
+                  exception_found = true;
+                  result.error_messages.add(e.message());
+               }
             }
-            CATCH_READ_TARGET_MOL(result.error_messages.add(e.message()); exception_found = true;);
+            CATCH_READ_TARGET_MOL({
+               if (core->bingo_context->reject_invalid_structures)
+                  throw;
+               result.error_messages.add(e.message());
+               exception_found = true;
+            });
          }
-         CATCH_READ_TARGET_RXN(result.error_messages.add(e.message()); exception_found = true;);
+         CATCH_READ_TARGET_RXN({
+            if (core->bingo_context->reject_invalid_structures)
+               throw;
+            result.error_messages.add(e.message());
+            exception_found = true;
+         });
 
          if (exception_found)
             result.error_ids.push(ids[i]);
@@ -169,7 +191,7 @@ void IndexingCommand::execute (OsCommandResult &result_)
       catch (Exception &e)
       {
          // Check unhandled exceptions
-         e.appendMessage(" INTERNAL ERROR ON id=%d", ids[i]);
+         e.appendMessage(" ERROR ON id=%d", ids[i]);
          e.throwSelf();
       }
    }

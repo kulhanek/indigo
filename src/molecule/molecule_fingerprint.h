@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -16,7 +16,13 @@
 #define __molecule_fingerprint__
 
 #include "base_cpp/tlscont.h"
+#include "base_cpp/obj.h"
 #include "molecule/base_molecule.h"
+#include "base_cpp/cancellation_handler.h"
+#include "graph/subgraph_hash.h"
+
+#include <unordered_map>
+#include <limits.h>
 
 #ifdef _WIN32
 #pragma warning(push)
@@ -88,17 +94,22 @@ public:
    void (*cb_fragment) (BaseMolecule &mol, const Array<int> &vertices, const Array<int> &edges,
                         bool use_atoms, bool use_bonds, dword hash);
 
-   DEF_ERROR("fingerprint builder");
-protected:
+   void parseFingerprintType(const char *type, bool query);
 
-   static void _handleTree     (Graph &graph, const int *v_mapping, const int *e_mapping, void *context);
+   CancellationHandler* cancellation;
+
+   DECL_ERROR;
+
+protected:
+   void _initHashCalculations (BaseMolecule &mol, const Filter &vfilter);
+
+   static void _handleTree     (Graph &graph, const Array<int> &vertices, const Array<int> &edges, void *context);
    static bool _handleCycle    (Graph &graph, const Array<int> &vertices, const Array<int> &edges, void *context);
 
-   static int _vertex_code (Graph &graph, int vertex_idx, void *context);
-   static int _edge_code (Graph &graph, int edge_idx, void *context);
+   int _atomCode (BaseMolecule &mol, int vertex_idx);
+   int _bondCode (BaseMolecule &mol, int edge_idx);
 
-   static int _maximalSubgraphCriteriaValue (Graph &graph, const int *v_mapping, 
-      const int *e_mapping, void *context);
+   static int _maximalSubgraphCriteriaValue (Graph &graph, const Array<int> &vertices, const Array<int> &edges, void *context);
 
    void _handleSubgraph (Graph &graph, const Array<int> &vertices, const Array<int> &edges);
 
@@ -109,13 +120,16 @@ protected:
       bool use_atoms, bool use_bonds, int subgraph_type, dword &bits_to_set);
 
    void _makeFingerprint (BaseMolecule &mol);
-   void _calcExtraBits (BaseMolecule &mol, Filter &vfilter);
+   void _calcExtraBits (BaseMolecule &mol);
 
    void _setTauBits (const char *str, int nbits);
    void _setOrdBits (const char *str, int nbits);
 
    static void _setBits (dword hash, byte *fp, int size, int nbits);
    
+   void _calculateFragmentVertexDegree (BaseMolecule &mol, const Array<int> &vertices, const Array<int> &edges);
+   int _calculateFragmentExternalConn (BaseMolecule &mol, const Array<int> &vertices, const Array<int> &edges);
+
    BaseMolecule &_mol;
    const MoleculeFingerprintParameters &_parameters;
 
@@ -123,7 +137,37 @@ protected:
    TautomerSuperStructure *_tau_super_structure;
    bool _is_cycle;
 
+   struct HashBits
+   {
+      HashBits (dword hash, int bits_per_fragment);
+      bool operator== (const HashBits &right) const;
+
+      dword hash;
+      int bits_per_fragment;
+   };
+   struct Hasher
+   {
+      size_t operator () (const HashBits &input) const;
+   };
+
+   void _addOrdHashBits (dword hash, int bits_per_fragment);
+
+   Obj<SubgraphHash> subgraph_hash;
+
+   CP_DECL;
    TL_CP_DECL(Array<byte>, _total_fingerprint);
+   TL_CP_DECL(Array<int>, _atom_codes);
+   TL_CP_DECL(Array<int>, _bond_codes);
+   TL_CP_DECL(Array<int>, _atom_codes_empty);
+   TL_CP_DECL(Array<int>, _bond_codes_empty);
+   TL_CP_DECL(Array<int>, _atom_hydrogens);
+   TL_CP_DECL(Array<int>, _atom_charges);
+   TL_CP_DECL(Array<int>, _vertex_connectivity);
+   TL_CP_DECL(Array<int>, _fragment_vertex_degree);
+   TL_CP_DECL(Array<int>, _bond_orders);
+
+   typedef std::unordered_map<HashBits, int, Hasher> HashesMap;
+   TL_CP_DECL(HashesMap, _ord_hashes);
 
 private:
    MoleculeFingerprintBuilder (const MoleculeFingerprintBuilder &); // no implicit copy

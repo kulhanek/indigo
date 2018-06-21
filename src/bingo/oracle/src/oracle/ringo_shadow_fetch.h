@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -34,12 +34,14 @@ public:
    virtual int getIOCost (OracleEnv &env, float selectivity);
    virtual int getTotalCount (OracleEnv &env);
 
+   virtual bool getLastRowid (OraRowidText &id);
+
    int countOracleBlocks (OracleEnv &env);
 
    void prepareNonSubstructure (OracleEnv &env);
    void prepareExact (OracleEnv &env, int right_part);
 
-   DEF_ERROR("ringo shadow fetch");
+   DECL_ERROR;
 protected:
    enum
    {

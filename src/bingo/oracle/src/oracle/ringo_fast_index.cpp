@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -21,10 +21,13 @@
 #include "oracle/bingo_oracle_context.h"
 #include "oracle/rowid_loader.h"
 
+IMPL_ERROR(RingoFastIndex, "ringo fast fetch");
+
 RingoFastIndex::RingoFastIndex (RingoFetchContext &context) :
 _context(context)
 {
    _fetch_type = 0;
+   _last_id = -1;
 }
 
 RingoFastIndex::~RingoFastIndex ()
@@ -49,6 +52,8 @@ void RingoFastIndex::_decompressRowid (const Array<char> &stored, OraRowidText &
 
 void RingoFastIndex::_match (OracleEnv &env, int idx)
 {
+   _last_id = idx;
+
    BingoStorage &storage = this->_context.context().context().storage;
    QS_DEF(Array<char>, stored);
    
@@ -173,6 +178,19 @@ int RingoFastIndex::getIOCost (OracleEnv &env, float selectivity)
    float ratio = fingerprints.queryOnesRatio(_screening);
 
    return (int)(blocks * ratio);
+}
+
+bool RingoFastIndex::getLastRowid (OraRowidText &id)
+{
+   if (_last_id < 0)
+      return false;
+
+   BingoStorage &storage = this->_context.context().context().storage;
+   QS_DEF(Array<char>, stored);
+   
+   storage.get(_last_id, stored);
+   _decompressRowid(stored, id);
+   return true;
 }
 
 int RingoFastIndex::getTotalCount (OracleEnv &env)

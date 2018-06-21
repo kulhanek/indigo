@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -21,9 +21,10 @@
 
 using namespace indigo;
 
+IMPL_ERROR(RxnfileLoader, "RXN loader");
+
 RxnfileLoader::RxnfileLoader (Scanner& scanner): _scanner(scanner){
    _v3000 = false;
-   ignore_stereocenter_errors = false;
    ignore_noncritical_query_features = false;
 }
 
@@ -51,7 +52,7 @@ void RxnfileLoader::_loadReaction(){
    MolfileLoader molfileLoader(_scanner);
 
    molfileLoader.treat_x_as_pseudoatom = treat_x_as_pseudoatom;
-   molfileLoader.ignore_stereocenter_errors = ignore_stereocenter_errors;
+   molfileLoader.stereochemistry_options = stereochemistry_options;
    molfileLoader.ignore_noncritical_query_features = ignore_noncritical_query_features;
    _readRxnHeader();
 

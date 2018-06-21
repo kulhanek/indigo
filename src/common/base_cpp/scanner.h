@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -26,7 +26,7 @@ namespace indigo {
 class DLLEXPORT Scanner
 {
 public:
-   DEF_ERROR("scanner");
+   DECL_ERROR;
 
    virtual ~Scanner ();
 
@@ -60,6 +60,8 @@ public:
    int   readIntFix (int digits);
    void  skipSpace ();
 
+   void  skipUntil (const char *delimiters);
+
    float readFloat (void);
    bool  tryReadFloat (float &value);
    int readInt (void);
@@ -71,6 +73,8 @@ public:
 
    bool findWord (const char *word);
    int findWord (ReusableObjArray< Array<char> > &words);
+   bool findWordIgnoreCase (const char *word);
+   int findWordIgnoreCase (ReusableObjArray< Array<char> > &words);
 
    static bool isSingleLine (Scanner &scanner);
 
@@ -99,7 +103,7 @@ private:
    FILE *_file;
    int   _file_len;
 
-   char _cache[1024];
+   unsigned char _cache[1024];
    int _cache_pos, _max_cache;
 
    void _validateCache ();
@@ -117,6 +121,7 @@ public:
    explicit BufferScanner (const byte *buffer, int buffer_size);
    explicit BufferScanner (const char *str);
    explicit BufferScanner (const Array<char> &arr);
+   virtual ~BufferScanner ();
 
    virtual bool isEOF ();
    virtual void read (int length, void *res);

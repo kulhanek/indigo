@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -50,8 +50,8 @@ public:
    // will be removed from this array.
    Array<int> possible_cis_trans_to_check;
 
-   DEF_ERROR("Molecule automorphism search");
-   DEF_TIMEOUT_EXCEPTION("Molecule automorphism search");
+   DECL_ERROR;
+   DECL_TIMEOUT_EXCEPTION;
 
 protected:
    static int  _vertex_cmp  (Graph &graph, int v1, int v2, const void *context);
@@ -111,6 +111,7 @@ protected:
    TL_CP_DECL(Array<int>, _hcount);
    TL_CP_DECL(Array<int>, _cistrans_stereo_bond_parity);
    TL_CP_DECL(Array<int>, _degree);
+   TL_CP_DECL(Array<int>, _independent_component_index);
 
    enum { _NO_STEREO = -1, _INVALID, _VALID, _UNDEF };
    TL_CP_DECL(Array<int>, _stereocenter_state);

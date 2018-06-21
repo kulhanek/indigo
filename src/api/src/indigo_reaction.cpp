@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -23,6 +23,7 @@
 #include "base_cpp/auto_ptr.h"
 #include "indigo_array.h"
 #include "reaction/rsmiles_loader.h"
+#include "reaction/canonical_rsmiles_saver.h"
 
 //
 // IndigoBaseReaction
@@ -52,11 +53,6 @@ bool IndigoBaseReaction::is (IndigoObject &obj)
 const char * IndigoBaseReaction::debugInfo ()
 {
    return "<base reaction>";
-}
-
-RedBlackStringObjMap< Array<char> > * IndigoBaseReaction::getProperties ()
-{
-   return &properties;
 }
 
 //
@@ -175,11 +171,6 @@ IndigoObject * IndigoReactionMolecule::clone ()
       return IndigoMolecule::cloneFrom(*this); 
 }
 
-RedBlackStringObjMap< Array<char> > * IndigoReactionMolecule::getProperties ()
-{
-   return 0;
-}
-
 void IndigoReactionMolecule::remove ()
 {
    rxn.remove(idx);
@@ -273,9 +264,8 @@ IndigoReaction * IndigoReaction::cloneFrom (IndigoObject & obj)
    rxnptr.reset(new IndigoReaction());
    rxnptr->rxn.clone(rxn, 0, 0, 0);
 
-   RedBlackStringObjMap< Array<char> > *props = obj.getProperties();
-   if (props != 0)
-      rxnptr->copyProperties(*props);
+   auto& props = obj.getProperties();
+   rxnptr->copyProperties(props);
    return rxnptr.release();
 }
 
@@ -287,9 +277,8 @@ IndigoQueryReaction * IndigoQueryReaction::cloneFrom (IndigoObject & obj)
    rxnptr.reset(new IndigoQueryReaction());
    rxnptr->rxn.clone(rxn, 0, 0, 0);
 
-   RedBlackStringObjMap< Array<char> > *props = obj.getProperties();
-   if (props != 0)
-      rxnptr->copyProperties(*props);
+   auto& props = obj.getProperties();
+   rxnptr->copyProperties(props);
    return rxnptr.release();
 }
 
@@ -323,7 +312,7 @@ CEXPORT int indigoLoadReaction (int source)
 
       ReactionAutoLoader loader(scanner);
 
-      loader.ignore_stereocenter_errors = self.ignore_stereochemistry_errors;
+      loader.stereochemistry_options = self.stereochemistry_options;
       loader.treat_x_as_pseudoatom = self.treat_x_as_pseudoatom;
       loader.ignore_noncritical_query_features = self.ignore_noncritical_query_features;
 
@@ -343,7 +332,7 @@ CEXPORT int indigoLoadQueryReaction (int source)
 
       ReactionAutoLoader loader(scanner);
 
-      loader.ignore_stereocenter_errors = self.ignore_stereochemistry_errors;
+      loader.stereochemistry_options = self.stereochemistry_options;
       loader.treat_x_as_pseudoatom = self.treat_x_as_pseudoatom;
 
       AutoPtr<IndigoQueryReaction> rxnptr(new IndigoQueryReaction());
@@ -550,6 +539,7 @@ CEXPORT int indigoAutomap (int reaction, const char *mode)
    {
       BaseReaction &rxn = self.getObject(reaction).getBaseReaction();
       ReactionAutomapper ram(rxn);
+      ram.arom_options = self.arom_options;
       /*
        * Read options
        */
@@ -669,6 +659,7 @@ CEXPORT int indigoCorrectReactingCenters (int reaction)
    {
       BaseReaction &rxn = self.getObject(reaction).getBaseReaction();
       ReactionAutomapper ram(rxn);
+      ram.arom_options = self.arom_options;
       ram.correctReactingCenters(true);
       return 0;
    }
@@ -692,4 +683,21 @@ CEXPORT int indigoLoadReactionSmarts (int source)
       return self.addObject(rxnptr.release());
    }
    INDIGO_END(-1);
+}
+
+CEXPORT const char * indigoCanonicalRSmiles(int reaction)
+{
+   INDIGO_BEGIN
+   {
+   Reaction &react = self.getObject(reaction).getReaction();
+
+   auto &tmp = self.getThreadTmpData();
+   ArrayOutput output(tmp.string);
+   CanonicalRSmilesSaver saver(output);
+
+   saver.saveReaction(react);
+   tmp.string.push(0);
+   return tmp.string.ptr();
+}
+   INDIGO_END(0);
 }

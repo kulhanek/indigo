@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2011 GGA Software Services LLC
+ * Copyright (C) 2011 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -32,6 +32,14 @@ IndigoObject * IndigoMapping::clone ()
    AutoPtr<IndigoMapping> res_ptr(new IndigoMapping(from, to));
    res_ptr->mapping.copy(mapping);
    return res_ptr.release();
+}
+
+IndigoMapping & IndigoMapping::cast (IndigoObject &obj)
+{
+   if (obj.type == IndigoObject::MAPPING)
+      return (IndigoMapping &)obj;
+
+   throw IndigoError("%s is not a mapping", obj.debugInfo());
 }
 
 IndigoReactionMapping::IndigoReactionMapping (BaseReaction &from_, BaseReaction &to_) :
@@ -195,7 +203,7 @@ CEXPORT int indigoHighlightedTarget (int item)
          AutoPtr<IndigoMolecule> mol(new IndigoMolecule());
 
          QS_DEF(Array<int>, mapping);
-         mol->mol.clone(im.to, &mapping, 0);
+         mol->mol.clone(im.to, 0, &mapping);
          _indigoHighlightSubstructure(im.from, mol->mol, im.mapping, mapping);
          return self.addObject(mol.release());
       }
@@ -207,7 +215,7 @@ CEXPORT int indigoHighlightedTarget (int item)
          QS_DEF(Array<int>, mol_mapping);
          int i;
 
-         rxn->rxn.clone(im.to, &mol_mapping, &mappings, 0);
+         rxn->rxn.clone(im.to, &mol_mapping, 0, &mappings);
 
          for (i = im.from.begin(); i != im.from.end(); i = im.from.next(i))
          {

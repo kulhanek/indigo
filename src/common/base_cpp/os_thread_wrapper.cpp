@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -28,6 +28,7 @@
 #include "base_cpp/exception.h"
 #include "base_cpp/tlscont.h"
 #include "base_cpp/auto_ptr.h"
+#include "base_cpp/profiling.h"
 
 using namespace indigo;
 
@@ -49,7 +50,7 @@ enum {
 
 // Maximum number of results that are kept in queue if
 // _handling_order is HANDLING_ORDER_SERIAL
-static const int _MAX_RESULTS = 10;
+static const int _MAX_RESULTS = 1000;
 
 OsCommandDispatcher::OsCommandDispatcher (int handling_order, bool same_session_IDs)
 {
@@ -109,6 +110,8 @@ void OsCommandDispatcher::_run (int nthreads)
 
 void OsCommandDispatcher::_mainLoop ()
 {
+   profTimerStart(t, "dispatcher.main_loop");
+
    // Main loop
    int msg;
    while (_left_thread_count != 0)
@@ -234,6 +237,8 @@ void OsCommandDispatcher::_onMsgHandleResult ()
    if (_handling_order == HANDLING_ORDER_SERIAL)
       if (!_storedResults.isInBound(index))
       {
+         profIncCounter("dispatcher.syspend_count", 1);
+
          _privateMessageSystem.SendMsg(MSG_SYSPEND_RESULT);
          _privateMessageSystem.RecvMsg(&msg, &param);
          if (msg != MSG_SYSPEND_SEMAPHORE)
@@ -270,12 +275,18 @@ void OsCommandDispatcher::_onMsgHandleResult ()
       }
       _storedResults.setOffset(_expected_command_index);
 
-      // Wake up all syspended threads
-      for (int i = 0; i < _syspendedThreads.size(); i++)
-         _syspendedThreads[i]->Post();
-      _syspendedThreads.clear();
+      _wakeSuspended();
    }
 }
+
+void OsCommandDispatcher::_wakeSuspended ()
+{
+   // Wake up all syspended threads
+   for (int i = 0; i < _syspendedThreads.size(); i++)
+      _syspendedThreads[i]->Post();
+   _syspendedThreads.clear();
+}
+
 
 void OsCommandDispatcher::_onMsgHandleException (Exception *exception)
 {
@@ -300,6 +311,8 @@ void OsCommandDispatcher::_handleException (Exception *exception)
 
       exception_ptr.reset(exception);
       _exception_to_forward = exception;
+
+      _wakeSuspended();
    }
    else
    {
@@ -448,7 +461,7 @@ int osGetProcessorsCount (void)
       SYSTEM_INFO info;
       GetSystemInfo(&info);
       processors_count = info.dwNumberOfProcessors;
-#elif defined __APPLE__ // MacOS X
+#elif __APPLE__ // MacOS X
       int mib[2];
       size_t len = sizeof(processors_count);
 

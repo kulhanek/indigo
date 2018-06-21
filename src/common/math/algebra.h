@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -47,7 +47,7 @@ struct Transform3f;
 struct Vec3f;
 struct Vec2f
 {
-   DEF_ERROR("Vec2f");
+   DECL_ERROR;
 
    Vec2f () : x(0), y(0) {}
    Vec2f (const Vec2f &a) : x(a.x), y(a.y) {}
@@ -127,6 +127,50 @@ struct Vec2f
       return (float)sqrt(lengthSqr());
    }
 
+   // OPERATORS:
+
+   inline Vec2f operator+(const Vec2f& a) const {
+      return Vec2f(x + a.x, y + a.y);
+   }
+
+   inline Vec2f operator-(const Vec2f& a) const {
+      return Vec2f(x - a.x, y - a.y);
+   }
+
+   inline Vec2f operator*(float t) const {
+      return Vec2f(x * t, y * t);
+   }
+
+   inline Vec2f operator/(float t) const {
+      return Vec2f(x / t, y / t);
+   }
+
+   inline Vec2f operator+=(const Vec2f& a) {
+      x += a.x;
+      y += a.y;
+      return *this;
+   }
+
+   inline Vec2f operator-=(const Vec2f& a) {
+      x -= a.x;
+      y -= a.y;
+      return *this;
+   }
+
+   inline Vec2f operator*=(float t) {
+      x *= t;
+      y *= t;
+      return *this;
+   }
+
+   inline Vec2f operator/=(float t) {
+      x /= t;
+      y /= t;
+      return *this;
+   }
+
+
+
    DLLEXPORT bool normalize ();
 
    DLLEXPORT bool normalization (const Vec2f &v);
@@ -135,7 +179,11 @@ struct Vec2f
 
    DLLEXPORT float tiltAngle2 ();
 
-   inline void scale (float s)
+   DLLEXPORT float calc_angle(Vec2f a, Vec2f b);
+
+   DLLEXPORT float calc_angle_pos(Vec2f a, Vec2f b);
+
+   inline void scale(float s)
    {
       x *= s;
       y *= s;
@@ -167,9 +215,11 @@ struct Vec2f
 
    DLLEXPORT void rotate (float angle);
    DLLEXPORT void rotate (float si, float co);
+   DLLEXPORT void rotate (Vec2f vec);
    DLLEXPORT void rotateL (float angle);
    DLLEXPORT void rotateL (float si, float co);
-   DLLEXPORT void rotateAroundSegmentEnd (const Vec2f &a, const Vec2f &b, float angle);
+   DLLEXPORT void rotateL (Vec2f vec);
+   DLLEXPORT void rotateAroundSegmentEnd(const Vec2f &a, const Vec2f &b, float angle);
 
    DLLEXPORT static float distSqr (const Vec2f &a, const Vec2f &b);
    DLLEXPORT static float dist    (const Vec2f &a, const Vec2f &b);
@@ -179,6 +229,13 @@ struct Vec2f
    DLLEXPORT static bool intersection (const Vec2f &v1_1, const Vec2f &v1_2, const Vec2f &v2_1, const Vec2f &v2_2, Vec2f &p);
    DLLEXPORT static float triangleArea (const Vec2f &a, const Vec2f &b, const Vec2f &c);
    DLLEXPORT static bool segmentsIntersect (const Vec2f &a0, const Vec2f &a1, const Vec2f &b0, const Vec2f &b1);
+   DLLEXPORT static bool segmentsIntersectInternal (const Vec2f &a0, const Vec2f &a1, const Vec2f &b0, const Vec2f &b1);
+
+   DLLEXPORT static double distPointSegment(Vec2f p, Vec2f q, Vec2f r);
+   DLLEXPORT static double distSegmentSegment(Vec2f p, Vec2f q, Vec2f r, Vec2f s);
+
+   DLLEXPORT static Vec2f get_circle_center(Vec2f p, Vec2f q, double angle);
+   DLLEXPORT static Vec2f get_circle_center(Vec2f a, Vec2f b, Vec2f c);
 };
 
 struct Vec3f
@@ -313,6 +370,11 @@ struct Vec3f
       z = a.z * ta + b.z * tb;
    }
 
+   inline Vec2f projectZ () const
+   {
+      return Vec2f(x, y);
+   }
+
    DLLEXPORT void rotateX (float angle);
    DLLEXPORT void rotateY (float angle);
    DLLEXPORT void rotateZ (float angle);
@@ -338,7 +400,7 @@ const Vec3f VZero3f (0.f, 0.f, 0.f);
 
 struct Transform3f
 {
-   DEF_ERROR("transform3f");
+   DECL_ERROR;
 
    float elements[16];
 
@@ -386,7 +448,7 @@ struct Matr3x3d
 {
    double elements[9];
 
-   DEF_ERROR("Matr3x3d");
+   DECL_ERROR;
 
    Matr3x3d ();
 
@@ -454,5 +516,5 @@ protected:
 };
 
 }
-
 #endif
+

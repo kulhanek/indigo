@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -20,6 +20,7 @@
 #include "layout/metalayout.h"
 #include "graph/graph.h"
 #include "reaction/base_reaction.h"
+#include "render2d/render_cdxml.h"
 
 typedef void* PVOID;
 
@@ -33,8 +34,9 @@ class BaseMolecule;
 class Reaction;
 class QueryMolecule;
 class QueryReaction;
+class Output;
 
-enum DINGO_MODE {MODE_NONE, MODE_PDF, MODE_PNG, MODE_SVG, MODE_EMF, MODE_HDC, MODE_PRN};
+enum DINGO_MODE {MODE_NONE, MODE_PDF, MODE_PNG, MODE_SVG, MODE_EMF, MODE_HDC, MODE_PRN, MODE_CDXML};
 enum LABEL_MODE {LABEL_MODE_NONE, LABEL_MODE_HETERO, LABEL_MODE_TERMINAL_HETERO, LABEL_MODE_ALL};
 enum STEREO_STYLE {STEREO_STYLE_EXT, STEREO_STYLE_OLD, STEREO_STYLE_NONE};
 enum {CWC_BASE = -2, CWC_WHITE=0, CWC_BLACK, CWC_RED, CWC_GREEN, CWC_BLUE, CWC_DARKGREEN, CWC_COUNT};
@@ -144,6 +146,8 @@ struct AtomDesc {
    Vec2f pos;
    Vec2f boundBoxMin;
    Vec2f boundBoxMax;
+   Vec3f hcolor;
+   bool hcolorSet;
    int label;
    int queryLabel;
    int color;
@@ -163,8 +167,8 @@ private:
    AtomDesc(const AtomDesc& ad);
 };
 
-struct SGroup {
-   SGroup();
+struct Sgroup {
+   Sgroup();
    void clear ();
 
    int tibegin, ticount;
@@ -172,7 +176,7 @@ struct SGroup {
    int bibegin, bicount;
 
 private:
-   SGroup(const SGroup& sg);
+   Sgroup(const SGroup& sg);
 };
 
 struct BondEnd {
@@ -209,7 +213,7 @@ private:
 struct BondDescr : public Edge {
    BondDescr ();
 
-   DEF_ERROR("molrender bond description");
+   DECL_ERROR;
 
    void clear ();
 
@@ -258,7 +262,7 @@ struct MoleculeRenderData {
    MoleculeRenderData ();
    void clear ();
 
-   ObjArray<SGroup> sgroups;
+   ObjArray<Sgroup> sgroups;
    ObjArray<AtomDesc> atoms;
    ObjArray<BondDescr> bonds;
    ObjArray<Ring> rings;
@@ -279,8 +283,9 @@ private:
 class RenderSettings {
 public:
    RenderSettings ();
-   void init (float sf);
+   void init (float sf, float lwf);
 
+   CP_DECL;
    TL_CP_DECL(Array<double>, bondDashAromatic);
    TL_CP_DECL(Array<double>, bondDashAny);
    TL_CP_DECL(Array<double>, bondDashSingleOrAromatic);
@@ -288,6 +293,7 @@ public:
 
    float labelInternalOffset;
    float lowerIndexShift;
+   float unit;
    float bondLineWidth;
    float bondSpace;
    float boundExtent;
@@ -334,12 +340,54 @@ private:
    RenderSettings (const RenderSettings& settings);
 };
 
+struct MultilineTextLayout
+{
+   enum Alignment { Left, Right, Center };
+
+   MultilineTextLayout ();
+   MultilineTextLayout (Alignment bbox, Alignment inbox);
+
+   // Text can be aligned in different ways: left, right, center. But if text has multiple 
+   // lines then this lines can also be aligned in different ways relative to each other
+   // +-----------------------------------+--------------+
+   // | View                              | Type         |
+   // +===================================+==============+
+   // | Line                              | left         |
+   // | Quite Long line                   |              |
+   // +-----------------------------------+--------------+
+   // |                              Line | right        |
+   // |                   Quite Long line |              |
+   // +-----------------------------------+--------------+
+   // |               Line                | center       |
+   // |         Quite a Long line         |              |
+   // +-----------------------------------+--------------+
+   // |         Line                      | center-left  |
+   // |         Quite a Long line         |              |
+   // +-----------------------------------+--------------+
+
+   // Alignment of the bounding box
+   Alignment bbox_alignment;
+   // Text alignment insdie bounding box
+   Alignment inbox_alignment;
+
+   void clear ();
+
+   // Returns values from 0.0 to 1.0 depending on the title box alignment
+   float getBboxRelativeOffset () const;
+   float getInboxRelativeOffset () const;
+   static float getRelativeOffset (Alignment alignment);
+
+   float getAnchorPoint (float area_x, float area_width, float text_width);
+};
+
 struct CanvasOptions {
    CanvasOptions ();
    void clear ();
 
    int width;
    int height;
+   int maxWidth;
+   int maxHeight;
    int xOffset;
    int yOffset;
    float bondLength;
@@ -352,8 +400,9 @@ struct CanvasOptions {
    Array<char> comment;
    Array<char> titleProp;
    COMMENT_POS commentPos;
-   float commentAlign;
-   float titleAlign;
+   MultilineTextLayout commentAlign;
+   MultilineTextLayout titleAlign;
+
    int gridColumnNumber;
 private:
    CanvasOptions (const CanvasOptions&);
@@ -372,12 +421,15 @@ public:
    Vec3f highlightColor;
    Vec3f aamColor;
    float commentFontFactor;
+   float commentSpacing;
    float titleFontFactor;
+   float titleSpacing;
    Vec3f commentColor;
    Vec3f titleColor;
    Vec3f dataGroupColor;
    LABEL_MODE labelMode;
    bool highlightedLabelsVisible;
+   bool boldBondDetection;
    bool implHVisible;
    DINGO_MODE mode;
    Output* output;
@@ -395,6 +447,8 @@ public:
    bool showCycles; // for diagnostic purposes
    bool agentsBelowArrow;
    bool collapseSuperatoms;
+   Array<char> atomColorProp;
+   AutoPtr<RenderCdxmlContext> cdxml_context;
 private:
    RenderOptions (const RenderOptions& );
 };

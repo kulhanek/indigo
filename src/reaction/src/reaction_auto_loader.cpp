@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -16,6 +16,7 @@
 #include "reaction/rsmiles_loader.h"
 #include "reaction/rxnfile_loader.h"
 #include "reaction/icr_loader.h"
+#include "reaction/icr_saver.h"
 #include "gzip/gzip_scanner.h"
 #include "reaction/reaction.h"
 #include "reaction/query_reaction.h"
@@ -28,9 +29,12 @@ void ReactionAutoLoader::_init ()
 {
    treat_x_as_pseudoatom = false;
    ignore_closing_bond_direction_mismatch = false;
-   ignore_stereocenter_errors = false;
+   stereochemistry_options.reset();
    ignore_noncritical_query_features = false;
+   ignore_cistrans_errors = false;
 }
+
+IMPL_ERROR(ReactionAutoLoader, "reaction auto loader");
 
 ReactionAutoLoader::ReactionAutoLoader (Scanner &scanner)
 {
@@ -88,7 +92,7 @@ void ReactionAutoLoader::_loadReaction (BaseReaction &reaction, bool query)
          gzscanner.readAll(buf);
          ReactionAutoLoader loader2(buf);
 
-         loader2.ignore_stereocenter_errors = ignore_stereocenter_errors;
+         loader2.stereochemistry_options = stereochemistry_options;
          loader2.ignore_noncritical_query_features = ignore_noncritical_query_features;
          loader2.treat_x_as_pseudoatom = treat_x_as_pseudoatom;
          if (query)
@@ -107,7 +111,7 @@ void ReactionAutoLoader::_loadReaction (BaseReaction &reaction, bool query)
          BufferScanner scanner2(buf);
          RxnfileLoader loader(scanner2);
          loader.treat_x_as_pseudoatom = treat_x_as_pseudoatom;
-         loader.ignore_stereocenter_errors = ignore_stereocenter_errors;
+         loader.stereochemistry_options = stereochemistry_options;
          loader.ignore_noncritical_query_features = ignore_noncritical_query_features;
          if (query)
             loader.loadQueryReaction((QueryReaction &)reaction);
@@ -125,7 +129,7 @@ void ReactionAutoLoader::_loadReaction (BaseReaction &reaction, bool query)
 
       _scanner->readCharsFix(3, id);
       _scanner->seek(pos, SEEK_SET);
-      if (strncmp(id, "ICR", 3) == 0)
+      if (IcrSaver::checkVersion(id))
       {
          if (query)
             throw Error("cannot load query reaction from ICR format");
@@ -146,7 +150,7 @@ void ReactionAutoLoader::_loadReaction (BaseReaction &reaction, bool query)
          if (_scanner->findWord("<reaction"))
          {
             ReactionCmlLoader loader(*_scanner);
-            loader.ignore_stereochemistry_errors = ignore_stereocenter_errors;
+            loader.stereochemistry_options = stereochemistry_options;
             if (query)
                throw Error("CML queries not supported");
             loader.loadReaction((Reaction &)reaction);
@@ -164,6 +168,8 @@ void ReactionAutoLoader::_loadReaction (BaseReaction &reaction, bool query)
 
       loader.ignore_closing_bond_direction_mismatch =
              ignore_closing_bond_direction_mismatch;
+      loader.ignore_cistrans_errors = ignore_cistrans_errors;
+      loader.stereochemistry_options = stereochemistry_options;
       if (query)
          loader.loadQueryReaction((QueryReaction &)reaction);
       else
@@ -175,7 +181,7 @@ void ReactionAutoLoader::_loadReaction (BaseReaction &reaction, bool query)
    {
       RxnfileLoader loader(*_scanner);
       loader.treat_x_as_pseudoatom = treat_x_as_pseudoatom;
-      loader.ignore_stereocenter_errors = ignore_stereocenter_errors;
+      loader.stereochemistry_options = stereochemistry_options;
       loader.ignore_noncritical_query_features = ignore_noncritical_query_features;
       if (query)
          loader.loadQueryReaction((QueryReaction &)reaction);

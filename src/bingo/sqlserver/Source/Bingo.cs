@@ -35,7 +35,7 @@ namespace indigo
       {
          using (BingoSession sessions = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
+            ContextFlags flags = 0;
 
             if (options.Value.Contains("TAU"))
                flags |= ContextFlags.TAU_RULES;
@@ -157,7 +157,7 @@ namespace indigo
       {
          using (BingoSession sessions = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
+            ContextFlags flags = 0;
 
             if (options.Value.Contains("TAU"))
                flags |= ContextFlags.TAU_RULES;
@@ -245,11 +245,10 @@ namespace indigo
       [BingoSqlFunctionForReader(str_bin = "reaction")]
       public static SqlString AAM (SqlBinary reaction, SqlString options, SqlString bingo_schema)
       {
-         ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
          using (SqlConnection conn = new SqlConnection("context connection=true"))
          {
             conn.Open();
-            prepareContext(conn, bingo_schema.Value, 0, flags);
+            prepareContext(conn, bingo_schema.Value, 0, 0);
          }
          return new SqlString(BingoCore.ringoAAM(reaction.Value, options.Value));
       }
@@ -259,11 +258,10 @@ namespace indigo
       [BingoSqlFunctionForReader(str_bin = "reaction")]
       public static SqlString CheckReaction (SqlBinary reaction, SqlString bingo_schema)
       {
-         ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
          using (SqlConnection conn = new SqlConnection("context connection=true"))
          {
             conn.Open();
-            prepareContext(conn, bingo_schema.Value, 0, flags);
+            prepareContext(conn, bingo_schema.Value, 0, 0);
          }
          string res = BingoCore.checkReaction(reaction.Value);
          if (res == null)
@@ -276,11 +274,10 @@ namespace indigo
       [BingoSqlFunctionForReader(str_bin = "molecule")]
       public static SqlString CheckMolecule (SqlBinary molecule, SqlString bingo_schema)
       {
-         ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
          using (SqlConnection conn = new SqlConnection("context connection=true"))
          {
             conn.Open();
-            prepareContext(conn, bingo_schema.Value, 0, flags);
+            prepareContext(conn, bingo_schema.Value, 0, 0);
          }
          string res = BingoCore.checkMolecule(molecule.Value);
          if (res == null)
@@ -346,8 +343,7 @@ namespace indigo
                   if ((op_flags & BingoOp.LOCK_INDEX) != 0)
                      index_data.locked = true;
 
-                  ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.NTHREADS |
-                     ContextFlags.IGNORE_CBDM | ContextFlags.FINGERPRINTS;
+                  ContextFlags flags = ContextFlags.NTHREADS | ContextFlags.FINGERPRINTS;
                   if ((op_flags & BingoOp.LOAD_TAU_RULES) != 0)
                      flags |= ContextFlags.TAU_RULES;
                   if ((op_flags & BingoOp.LOAD_CMF) != 0)
@@ -362,6 +358,9 @@ namespace indigo
                   }
                   catch (Exception ex)
                   {
+                     if ((Thread.CurrentThread.ThreadState & ThreadState.AbortRequested) != 0)
+                        Thread.ResetAbort();
+
                      BingoLog.logMessage("Exception {0} in {1}:\n{2}", ex.Message, ex.Source, ex.StackTrace);
 
                      if ((op_flags & BingoOp.LOCK_INDEX) != 0)
@@ -386,6 +385,8 @@ namespace indigo
          }
          finally
          {
+            if ((Thread.CurrentThread.ThreadState & ThreadState.AbortRequested) != 0)
+               Thread.ResetAbort();
             if (ext_conn != null)
                ext_conn.Close();
          }
@@ -1396,9 +1397,7 @@ namespace indigo
          TAU_RULES = 0x01,
          FINGERPRINTS = 0x02,
          CMF = 0x04,
-         X_PSEUDO = 0x08,
-         IGNORE_CBDM = 0x10,
-         NTHREADS = 0x20,
+         NTHREADS = 0x08,
       };
 
       private static void prepareContext (SqlConnection connection, string bingo_schema,
@@ -1406,23 +1405,31 @@ namespace indigo
       {
          BingoCore.setContext(id);
 
-         if ((flags & ContextFlags.X_PSEUDO) != 0)
-         {
-            BingoCore.setConfigInt("treat-x-as-pseudoatom",
-                BingoConfig.getInt(connection, bingo_schema, "treat-x-as-pseudoatom", id));
-         }
+         // Set basic paremeters for every request
+         // TODO: cache settings
+         BingoCore.setConfigInt("treat-x-as-pseudoatom",
+             BingoConfig.getInt(connection, bingo_schema, "treat-x-as-pseudoatom", id));
+         BingoCore.setConfigInt("ignore-stereocenter-errors",
+             BingoConfig.getInt(connection, bingo_schema, "ignore-stereocenter-errors", id));
+         BingoCore.setConfigInt("ignore-cistrans-errors",
+             BingoConfig.getInt(connection, bingo_schema, "ignore-cistrans-errors", id));
+         BingoCore.setConfigInt("allow-non-unique-dearomatization",
+             BingoConfig.getInt(connection, bingo_schema, "allow-non-unique-dearomatization", id));
+         BingoCore.setConfigInt("zero-unknown-aromatic-hydrogens",
+             BingoConfig.getInt(connection, bingo_schema, "zero-unknown-aromatic-hydrogens", id));
+         BingoCore.setConfigInt("stereochemistry-bidirectional-mode",
+             BingoConfig.getInt(connection, bingo_schema, "stereochemistry-bidirectional-mode", id));
+         BingoCore.setConfigInt("stereochemistry-detect-haworth-projection",
+             BingoConfig.getInt(connection, bingo_schema, "stereochemistry-detect-haworth-projection", id));
+         BingoCore.setConfigInt("ignore-closing-bond-direction-mismatch",
+             BingoConfig.getInt(connection, bingo_schema, "ignore-closing-bond-direction-mismatch", id));
+         BingoCore.setConfigInt("reject-invalid-structures",
+             BingoConfig.getInt(connection, bingo_schema, "reject-invalid-structures", id));
 
          if ((flags & ContextFlags.NTHREADS) != 0)
          {
             BingoCore.setConfigInt("nthreads",
                 BingoConfig.getInt(connection, bingo_schema, "nthreads", id));
-         }
-
-         if ((flags & ContextFlags.IGNORE_CBDM) != 0)
-         {
-            BingoCore.setConfigInt("ignore-closing-bond-direction-mismatch",
-                BingoConfig.getInt(connection, bingo_schema,
-                "ignore-closing-bond-direction-mismatch", id));
          }
 
          if ((flags & ContextFlags.TAU_RULES) != 0)
@@ -1498,11 +1505,10 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             return BingoCore.mangoSMILES(molecule.Value, false);
@@ -1516,11 +1522,10 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             return BingoCore.ringoRSMILES(reaction.Value);
@@ -1534,14 +1539,75 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             return BingoCore.mangoMolfile(molecule.Value);
+         }
+      }
+
+      [SqlFunction(DataAccess = DataAccessKind.Read,
+         SystemDataAccess = SystemDataAccessKind.Read)]
+      [BingoSqlFunctionForReader(str_bin = "molecule")]
+      public static SqlString InChI(SqlBinary molecule, SqlString options, SqlString bingo_schema)
+      {
+         using (BingoSession session = new BingoSession())
+         {
+            using (SqlConnection conn = new SqlConnection("context connection=true"))
+            {
+               conn.Open();
+               prepareContext(conn, bingo_schema.Value, 0, 0);
+            }
+
+            return BingoCore.mangoInChI(molecule.Value, options.Value);
+         }
+      }
+
+      [SqlFunction(DataAccess = DataAccessKind.Read,
+         SystemDataAccess = SystemDataAccessKind.Read)]
+      [BingoSqlFunctionForReader]
+      public static SqlString InChIKey(SqlString inchi, SqlString bingo_schema)
+      {
+         using (BingoSession session = new BingoSession())
+         {
+            return BingoCore.mangoInChIKey(inchi.Value);
+         }
+      }
+
+      [SqlFunction(DataAccess = DataAccessKind.Read,
+         SystemDataAccess = SystemDataAccessKind.Read)]
+      [BingoSqlFunctionForReader(str_bin = "molecule")]
+      public static SqlBinary Fingerprint(SqlBinary molecule, SqlString options, SqlString bingo_schema)
+      {
+         using (BingoSession session = new BingoSession())
+         {
+            using (SqlConnection conn = new SqlConnection("context connection=true"))
+            {
+               conn.Open();
+               prepareContext(conn, bingo_schema.Value, 0, ContextFlags.FINGERPRINTS);
+            }
+
+            return BingoCore.mangoFingerprint(molecule.Value, options.Value);
+         }
+      }
+
+      [SqlFunction(DataAccess = DataAccessKind.Read,
+         SystemDataAccess = SystemDataAccessKind.Read)]
+      [BingoSqlFunctionForReader(str_bin = "reaction")]
+      public static SqlBinary RFingerprint(SqlBinary reaction, SqlString options, SqlString bingo_schema)
+      {
+         using (BingoSession session = new BingoSession())
+         {
+            using (SqlConnection conn = new SqlConnection("context connection=true"))
+            {
+               conn.Open();
+               prepareContext(conn, bingo_schema.Value, 0, ContextFlags.FINGERPRINTS);
+            }
+
+            return BingoCore.ringoFingerprint(reaction.Value, options.Value);
          }
       }
 
@@ -1552,11 +1618,10 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             return BingoCore.mangoCML(molecule.Value);
@@ -1570,11 +1635,10 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             return BingoCore.ringoRCML(reaction.Value);
@@ -1588,11 +1652,10 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             return BingoCore.ringoRxnfile(reaction.Value);
@@ -1606,11 +1669,10 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             return BingoCore.mangoSMILES(molecule.Value, true);
@@ -1624,11 +1686,10 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             return BingoCore.mangoICM(molecule.Value, save_xyz.Value);
@@ -1642,11 +1703,10 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             return BingoCore.ringoICR(reaction.Value, save_xyz.Value);
@@ -1660,11 +1720,10 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             float mass;
@@ -1682,11 +1741,10 @@ namespace indigo
       {
          using (BingoSession session = new BingoSession())
          {
-            ContextFlags flags = ContextFlags.X_PSEUDO | ContextFlags.IGNORE_CBDM;
             using (SqlConnection conn = new SqlConnection("context connection=true"))
             {
                conn.Open();
-               prepareContext(conn, bingo_schema.Value, 0, flags);
+               prepareContext(conn, bingo_schema.Value, 0, 0);
             }
 
             return BingoCore.mangoGross(molecule.Value);
@@ -1786,8 +1844,7 @@ namespace indigo
             {
                conn.Open();
                prepareContext(conn, bingo_schema.Value, 0,
-                  ContextFlags.IGNORE_CBDM | ContextFlags.NTHREADS |
-                  ContextFlags.X_PSEUDO | ContextFlags.FINGERPRINTS);
+                  ContextFlags.NTHREADS | ContextFlags.FINGERPRINTS);
 
                BingoIndexID id = new BingoIndexID(conn, table.Value);
                BingoIndexData dummy_data;

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -87,14 +87,34 @@ void BingoOracleContext::_loadConfigParameters (OracleEnv &env)
    tautomerLoadRules(env);
    atomicMassLoad(env);
 
-   int txap = 0;
-   int icbdm = 0;
+   int val;
 
-   configGetInt(env, "TREAT_X_AS_PSEUDOATOM", txap);
-   treat_x_as_pseudoatom = (txap != 0);
+   configGetIntDef(env, "TREAT_X_AS_PSEUDOATOM", val, 0);
+   treat_x_as_pseudoatom = (val != 0);
 
-   configGetInt(env, "IGNORE_CLOSING_BOND_DIRECTION_MISMATCH", icbdm);
-   ignore_closing_bond_direction_mismatch = (icbdm != 0);
+   configGetIntDef(env, "IGNORE_CLOSING_BOND_DIRECTION_MISMATCH", val, 0);
+   ignore_closing_bond_direction_mismatch = (val != 0);
+
+   configGetIntDef(env, "IGNORE_STEREOCENTER_ERRORS", val, 0);
+   ignore_stereocenter_errors = (val != 0);
+
+   configGetIntDef(env, "IGNORE_CISTRANS_ERRORS", val, 0);
+   ignore_cistrans_errors = (val != 0);
+
+   configGetIntDef(env, "STEREOCHEMISTRY_BIDIRECTIONAL_MODE", val, 0);
+   stereochemistry_bidirectional_mode = (val != 0);
+
+   configGetIntDef(env, "STEREOCHEMISTRY_DETECT_HAWORTH_PROJECTION", val, 0);
+   stereochemistry_detect_haworth_projection = (val != 0);
+
+   configGetIntDef(env, "ALLOW_NON_UNIQUE_DEAROMATIZATION", val, 0);
+   allow_non_unique_dearomatization = (val != 0);
+
+   configGetIntDef(env, "ZERO_UNKNOWN_AROMATIC_HYDROGENS", val, 0);
+   zero_unknown_aromatic_hydrogens = (val != 0);
+
+   configGetIntDef(env, "REJECT_INVALID_STRUCTURES", val, 0);
+   reject_invalid_structures = (val != 0);
 
    QS_DEF(Array<char>, cmfdict);
    
@@ -117,6 +137,12 @@ void BingoOracleContext::_loadConfigParameters (OracleEnv &env)
    configGetInt(env, "SUB_SCREENING_PASS_MARK", sub_screening_pass_mark);
    configGetInt(env, "SIM_SCREENING_PASS_MARK", sim_screening_pass_mark);
    configGetInt(env, "SUB_SCREENING_MAX_BITS", sub_screening_max_bits);
+
+   QS_DEF(Array<char>, log_table);
+   if (configGetString(env, "LOG_TABLE", log_table))
+      warnings.setTableNameAndColumns(env, log_table.ptr());
+   else
+      warnings.reset();
 
    _config_changed = false;
 }
@@ -146,6 +172,19 @@ void BingoOracleContext::saveRidDict (OracleEnv &env)
 
    configSetBlob(env, "RIDDICT", riddict);
 }
+
+bool BingoOracleContext::configGetIntDef (OracleEnv &env, const char *name, int &value, int default_value)
+{
+   if (!OracleStatement::executeSingleInt(value, env, "SELECT value FROM "
+      "(SELECT value FROM config_int WHERE name = upper('%s') AND n in (0, %d) "
+      "ORDER BY n DESC) WHERE rownum <= 1", name, id))
+   {
+      return false;
+      value = default_value;
+   }
+   return true;
+}
+
 
 bool BingoOracleContext::configGetInt (OracleEnv &env, const char *name, int &value)
 {
@@ -320,6 +359,7 @@ void BingoOracleContext::fingerprintLoadParameters (OracleEnv &env)
    configGetInt(env, "FP_SIM_SIZE", fp_parameters.sim_qwords);
    configGetInt(env, "FP_ANY_SIZE", fp_parameters.any_qwords);
    fp_parameters.ext = true;
+   fp_parameters_ready = true;
    
    configGetInt(env, "FP_STORAGE_CHUNK", fp_chunk_qwords);
 }
@@ -363,6 +403,7 @@ void BingoOracleContext::parseParameters (OracleEnv &env, const char *str)
    BufferScanner scanner(str);
 
    QS_DEF(Array<char>, param_name);
+   QS_DEF(Array<char>, param_value);
 
    static const char *PARAMETERS_INT[] = 
    {
@@ -373,7 +414,14 @@ void BingoOracleContext::parseParameters (OracleEnv &env, const char *str)
       "FP_MAX_CYCLE_LEN",
       "FP_MIN_TREE_EDGES",
       "FP_MAX_TREE_EDGES",
-      "FP_STORAGE_CHUNK"
+      "FP_STORAGE_CHUNK",
+      "TREAT_X_AS_PSEUDOATOM",
+      "IGNORE_CLOSING_BOND_DIRECTION_MISMATCH",
+      "IGNORE_STEREOCENTER_ERRORS",
+      "IGNORE_CISTRANS_ERRORS",
+      "ALLOW_NON_UNIQUE_DEAROMATIZATION",
+      "ZERO_UNKNOWN_AROMATIC_HYDROGENS",
+      "REJECT_INVALID_STRUCTURES",
    };
 
    bool config_changed = false;
@@ -403,6 +451,13 @@ void BingoOracleContext::parseParameters (OracleEnv &env, const char *str)
       if (strcasecmp(param_name.ptr(), "NTHREADS") == 0)
       {
          nthreads = scanner.readInt();
+         parameter_found = true;
+      }
+
+      if (strcasecmp(param_name.ptr(), "LOG_TABLE") == 0)
+      {
+         scanner.readWord(param_value, " ");
+         setLogTableWithColumns(env, param_value.ptr());
          parameter_found = true;
       }
 
@@ -470,6 +525,10 @@ void BingoOracleContext::atomicMassSave (OracleEnv &env)
       configSetString(env, "RELATIVE_ATOMIC_MASS", "");
 }
 
+void BingoOracleContext::setLogTableWithColumns (OracleEnv &env, const char *tableWithColumns)
+{
+   configSetString(env, "LOG_TABLE", tableWithColumns);
+}
 
 void BingoOracleContext::lock (OracleEnv &env)
 {

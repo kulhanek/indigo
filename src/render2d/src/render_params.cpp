@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -14,6 +14,7 @@
 
 #include "base_cpp/array.h"
 #include "base_cpp/output.h"
+#include "base_cpp/os_sync_wrapper.h"
 #include "molecule/molecule.h"
 #include "molecule/query_molecule.h"
 #include "reaction/reaction.h"
@@ -38,6 +39,7 @@
 #include "render_item_factory.h"
 #include "render_single.h"
 #include "render_grid.h"
+#include "render_cdxml.h"
 
 using namespace indigo;
 
@@ -61,6 +63,7 @@ void RenderParams::clearArrays ()
 void RenderParams::clear ()
 {
    relativeThickness = 1.0f;
+   bondLineWidthFactor = 1.0f;
    rmode = RENDER_NONE;
    mol.reset(NULL);
    rxn.reset(NULL);
@@ -69,18 +72,25 @@ void RenderParams::clear ()
    clearArrays();
 }
 
+IMPL_ERROR(RenderParamInterface, "render param interface");
+
 bool RenderParamInterface::needsLayoutSub (BaseMolecule& mol)
 {
    QS_DEF(RedBlackSet<int>, atomsToIgnore);
    atomsToIgnore.clear();
-   for (int i = mol.multiple_groups.begin(); i < mol.multiple_groups.end(); i = mol.multiple_groups.next(i)) {
-      const Array<int>& atoms = mol.multiple_groups[i].atoms;
-      const Array<int>& patoms = mol.multiple_groups[i].parent_atoms;
-      for (int j = 0; j < atoms.size(); ++j)
-         atomsToIgnore.find_or_insert(atoms[j]);
-      for (int j = 0; j < patoms.size(); ++j)
-         if (atomsToIgnore.find(patoms[j]))
-            atomsToIgnore.remove(patoms[j]);
+   for (int i = mol.sgroups.begin(); i != mol.sgroups.end(); i = mol.sgroups.next(i))
+   {
+      SGroup &sg = mol.sgroups.getSGroup(i);
+      if (sg.sgroup_type == SGroup::SG_TYPE_MUL)
+      {
+         const Array<int>& atoms = sg.atoms;
+         const Array<int>& patoms = ((MultipleGroup &)sg).parent_atoms;
+         for (int j = 0; j < atoms.size(); ++j)
+            atomsToIgnore.find_or_insert(atoms[j]);
+         for (int j = 0; j < patoms.size(); ++j)
+            if (atomsToIgnore.find(patoms[j]))
+               atomsToIgnore.remove(patoms[j]);
+      }
    }
    for (int i = mol.vertexBegin(); i < mol.vertexEnd(); i = mol.vertexNext(i)) {
       if (atomsToIgnore.find(i))
@@ -119,7 +129,7 @@ void RenderParamInterface::_prepareMolecule (RenderParams& params, BaseMolecule&
 {
    if (needsLayout(bm))
    {
-      MoleculeLayout ml(bm);
+      MoleculeLayout ml(bm, false);
       ml.make();
       bm.clearBondDirections();
       bm.stereocenters.markBonds();
@@ -134,7 +144,7 @@ void RenderParamInterface::_prepareReaction (RenderParams& params, BaseReaction&
       BaseMolecule& mol = rxn.getBaseMolecule(i);
       if (needsLayout(mol))
       {
-         MoleculeLayout ml(mol);
+         MoleculeLayout ml(mol, false);
          ml.make();
          mol.clearBondDirections();
          mol.stereocenters.markBonds();
@@ -143,12 +153,42 @@ void RenderParamInterface::_prepareReaction (RenderParams& params, BaseReaction&
    }
 }
 
+int RenderParamInterface::multilineTextUnit (RenderItemFactory& factory, int type, const Array<char>& titleStr, const float spacing, const MultilineTextLayout::Alignment alignment)
+{
+   int title = factory.addItemColumn();
+   int start = 0;
+   while (start < titleStr.size())
+   {
+      int next = titleStr.find(start + 1, titleStr.size(), '\n');
+      if (next == -1)
+         next = titleStr.size();
+      int title_line = factory.addItemAuxiliary();
+      factory.getItemAuxiliary(title_line).type = (RenderItemAuxiliary::AUX_TYPE)type;
+      factory.getItemAuxiliary(title_line).text.copy(titleStr.ptr() + start, next - start);
+      factory.getItemAuxiliary(title_line).text.push('\0');
+      factory.getItemColumn(title).items.push(title_line);
+      start = next+1;
+   }
+   factory.getItemColumn(title).setVerticalSpacing(spacing);
+   factory.getItemColumn(title).setAlignment(alignment);
+   return title;
+}
+
 void RenderParamInterface::render (RenderParams& params)
 {
+   // Disable multithreaded SVG rendering due to the Cairo issue. See IND-482
+   OsLock *render_lock = 0;
+   if (params.rOpt.mode == MODE_SVG)
+   {
+      static ThreadSafeStaticObj<OsLock> svg_lock;
+      render_lock = svg_lock.ptr();
+   }
+   OsLockerNullable locker(render_lock);
+
    if (params.rmode == RENDER_NONE)
       throw Error("No object to render specified");
 
-   RenderContext rc(params.rOpt, params.relativeThickness);
+   RenderContext rc(params.rOpt, params.relativeThickness, params.bondLineWidthFactor);
 
    bool bondLengthSet = params.cnvOpt.bondLength > 0;
    int bondLength = (int)(bondLengthSet ? params.cnvOpt.bondLength : 100);
@@ -173,10 +213,9 @@ void RenderParamInterface::render (RenderParams& params)
             objs.push(mol);
 
             if (params.titles.size() > 0) {
-               int title = factory.addItemAuxiliary();
-               factory.getItemAuxiliary(title).type = RenderItemAuxiliary::AUX_TITLE;
-               factory.getItemAuxiliary(title).text.copy(params.titles[i]);
-               titles.push(title);
+               titles.push(multilineTextUnit(factory, RenderItemAuxiliary::AUX_TITLE, params.titles[i],
+                  params.rOpt.titleSpacing * params.rOpt.titleFontFactor,
+                  params.cnvOpt.titleAlign.inbox_alignment));
             }
          }
       }
@@ -196,10 +235,9 @@ void RenderParamInterface::render (RenderParams& params)
             objs.push(rxn);
 
             if (params.titles.size() > 0) {
-               int title = factory.addItemAuxiliary();
-               factory.getItemAuxiliary(title).type = RenderItemAuxiliary::AUX_TITLE;
-               factory.getItemAuxiliary(title).text.copy(params.titles[i]);
-               titles.push(title);
+               titles.push(multilineTextUnit(factory, RenderItemAuxiliary::AUX_TITLE,
+                  params.titles[i], params.rOpt.titleSpacing * params.rOpt.titleFontFactor,
+                  params.cnvOpt.titleAlign.inbox_alignment));
             }
          }
       }
@@ -209,9 +247,17 @@ void RenderParamInterface::render (RenderParams& params)
 
    int comment = -1;
    if (params.cnvOpt.comment.size() > 0) {
-      comment = factory.addItemAuxiliary();
-      factory.getItemAuxiliary(comment).type = RenderItemAuxiliary::AUX_COMMENT;
-      factory.getItemAuxiliary(comment).text.copy(params.cnvOpt.comment);
+      comment = multilineTextUnit(factory, RenderItemAuxiliary::AUX_COMMENT,
+         params.cnvOpt.comment, params.rOpt.commentSpacing * params.rOpt.commentFontFactor,
+         params.cnvOpt.commentAlign.inbox_alignment);
+   }
+
+   // Render into other formats after objects has been prepared (layout, etc.)
+   if (params.rOpt.mode == MODE_CDXML)
+   {
+      // Render into CDXML format
+      RenderParamCdxmlInterface::render(params);
+      return;
    }
 
    if (obj >= 0) {

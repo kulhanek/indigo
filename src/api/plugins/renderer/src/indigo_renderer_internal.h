@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -19,7 +19,7 @@
 #include "base_cpp/tlscont.h"
 #include "indigo_internal.h"
 
-class IndigoRenderer
+class IndigoRenderer : public IndigoPluginContext
 {
 public:
    IndigoRenderer ();
@@ -27,7 +27,7 @@ public:
 
    RenderParams renderParams;
    
-protected:
+   virtual void init ();
 };
 
 class IndigoHDCOutput : public IndigoObject

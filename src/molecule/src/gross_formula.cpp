@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -40,7 +40,20 @@ int GrossFormula::_cmp (_ElemCounter &ec1, _ElemCounter &ec2, void *context)
    return ec1.elem - ec2.elem;
 }
 
-// comparator implementing the Hill system
+// comparator implementing the Hill system without carbon:
+// <all atoms in alphabetical order>
+int GrossFormula::_cmp_hill_no_carbon (_ElemCounter &ec1, _ElemCounter &ec2, void *context)
+{
+   if (ec1.counter == 0)
+      return 1;
+   if (ec2.counter == 0)
+      return -1;
+   // all elements are compared lexicographically
+   return strcmp(Element::toString(ec1.elem), Element::toString(ec2.elem));
+}
+
+// comparator implementing the Hill system with carbon:
+// C H <other atoms in alphabetical order>
 int GrossFormula::_cmp_hill (_ElemCounter &ec1, _ElemCounter &ec2, void *context)
 {
    if (ec1.counter == 0)
@@ -59,21 +72,20 @@ int GrossFormula::_cmp_hill (_ElemCounter &ec1, _ElemCounter &ec2, void *context
       return 1;
    if (ec1.elem == ELEM_H)
       return -1;
-
-   // other elements are compared lexicographically
-   return strcmp(Element::toString(ec1.elem), Element::toString(ec2.elem));
+   return _cmp_hill_no_carbon(ec1, ec2, context);
 }
 
 void GrossFormula::collect (BaseMolecule &mol, Array<int> &gross)
 {
-   int i;
+   if (!mol.isQueryMolecule())
+      mol.asMolecule().restoreAromaticHydrogens();
 
    gross.clear_resize(ELEM_MAX);
    gross.zerofill();
 
-   for (i = mol.vertexBegin(); i < mol.vertexEnd(); i = mol.vertexNext(i))
+   for (int i = mol.vertexBegin(); i < mol.vertexEnd(); i = mol.vertexNext(i))
    {
-      if (mol.isPseudoAtom(i) || mol.isRSite(i))
+      if (mol.isPseudoAtom(i) || mol.isRSite(i) || mol.isTemplateAtom(i)) 
          continue;
       int number = mol.getAtomNumber(i);
 
@@ -97,7 +109,10 @@ void GrossFormula::toString (const Array<int> &gross, Array<char> &str)
 
 void GrossFormula::toString_Hill (const Array<int> &gross, Array<char> &str)
 {
-   _toString(gross, str, _cmp_hill);
+   if (gross[ELEM_C] == 0)
+      _toString(gross, str, _cmp_hill_no_carbon);
+   else
+      _toString(gross, str, _cmp_hill);
 }
 
 

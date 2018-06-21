@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -16,6 +16,7 @@
 #include "molecule/molecule_arom.h"
 #include "base_cpp/output.h"
 #include "molecule/elements.h"
+#include "molecule/molecule_standardize.h"
 
 using namespace indigo;
 
@@ -132,6 +133,8 @@ int QueryMolecule::getAtomSubstCount (int idx)
 
    if (_atoms[idx]->sureValue(ATOM_SUBSTITUENTS, res))
       return res;
+   if (_atoms[idx]->sureValue(ATOM_SUBSTITUENTS_AS_DRAWN, res))
+      return res;
 
    return -1;
 }
@@ -141,6 +144,8 @@ int QueryMolecule::getAtomRingBondsCount (int idx)
    int res;
 
    if (_atoms[idx]->sureValue(ATOM_RING_BONDS, res))
+      return res;
+   if (_atoms[idx]->sureValue(ATOM_RING_BONDS_AS_DRAWN, res))
       return res;
 
    return -1;
@@ -243,6 +248,9 @@ void QueryMolecule::_getAtomDescription (Atom *atom, Output &out, int depth)
       case ATOM_PSEUDO:
          out.writeString(atom->alias.ptr());
          return;
+      case ATOM_TEMPLATE:
+         out.writeString(atom->alias.ptr());
+         return;
       case ATOM_CHARGE:
          out.printf("%+d", atom->value_min);
          return;
@@ -274,8 +282,14 @@ void QueryMolecule::_getAtomDescription (Atom *atom, Output &out, int depth)
       case ATOM_SUBSTITUENTS:
          out.printf("s%d", atom->value_min);
          return;
+      case ATOM_SUBSTITUENTS_AS_DRAWN:
+         out.printf("s*");
+         return;
       case ATOM_RING_BONDS:
          out.printf("rb%d", atom->value_min);
+         return;
+      case ATOM_RING_BONDS_AS_DRAWN:
+         out.printf("rb*");
          return;
       case ATOM_UNSATURATION:
          out.printf("u");
@@ -414,6 +428,61 @@ const char * QueryMolecule::getPseudoAtom (int idx)
    throw Error("getPseudoAtom() applied to something that is not a pseudo-atom");
 }
 
+bool QueryMolecule::isTemplateAtom (int idx)
+{
+   // This is dirty hack; however, it is legal here, as template atoms
+   // can not be present in deep query trees due to Molfile and SMILES
+   // format limitations. If they could, we would have to implement
+   // sureValue() for ATOM_TEMPLATE
+
+   if (_atoms[idx]->type == ATOM_TEMPLATE)
+      return true;
+
+   if (_atoms[idx]->type == OP_AND)
+   {
+      int i;
+
+      for (i = 0; i < _atoms[idx]->children.size(); i++)
+         if (_atoms[idx]->children[i]->type == ATOM_TEMPLATE)
+            return true;
+   }
+
+   return false;
+}
+
+const char * QueryMolecule::getTemplateAtom (int idx)
+{
+   // see the comment above in isTemplateAtom()
+   
+   if (_atoms[idx]->type == ATOM_TEMPLATE)
+      return _atoms[idx]->alias.ptr();
+
+   if (_atoms[idx]->type == OP_AND)
+   {
+      int i;
+
+      for (i = 0; i < _atoms[idx]->children.size(); i++)
+         if (_atoms[idx]->children[i]->type == ATOM_TEMPLATE)
+            return ((Atom *)_atoms[idx]->children[i])->alias.ptr();
+   }
+
+   throw Error("getTemplateAtom() applied to something that is not a template atom");
+}
+
+const char * QueryMolecule::getTemplateAtomClass (int idx)
+{
+	return 0;
+}
+
+const int QueryMolecule::getTemplateAtomSeqid (int idx)
+{
+	return -1;
+}
+
+const int QueryMolecule::getTemplateAtomDisplayOption (int idx)
+{
+	return -1;
+}
 
 bool QueryMolecule::isSaturatedAtom (int idx)
 {
@@ -429,6 +498,8 @@ QueryMolecule::Node::~Node ()
 {
 }
 
+IMPL_ERROR(QueryMolecule::Atom, "query atom");
+
 QueryMolecule::Atom::Atom () : Node(OP_NONE)
 {
    value_min = 0;
@@ -440,12 +511,14 @@ QueryMolecule::Atom::Atom (int type_, int value) : Node(type_)
    if (type_ == ATOM_NUMBER  || type_ == ATOM_CHARGE ||
        type_ == ATOM_ISOTOPE || type_ == ATOM_RADICAL ||
        type_ == ATOM_AROMATICITY || type_ == ATOM_VALENCE ||
-       type_ == ATOM_RING_BONDS || 
-       type_ == ATOM_SUBSTITUENTS ||
+       type_ == ATOM_RING_BONDS || type_ == ATOM_RING_BONDS_AS_DRAWN ||
+       type_ == ATOM_SUBSTITUENTS || type_ == ATOM_SUBSTITUENTS_AS_DRAWN ||
        type_ == ATOM_TOTAL_H || type_ == ATOM_CONNECTIVITY ||
        type_ == ATOM_TOTAL_BOND_ORDER ||
        type_ == ATOM_UNSATURATION || type == ATOM_SSSR_RINGS ||
-       type == ATOM_SMALLEST_RING_SIZE || type == ATOM_RSITE)
+       type == ATOM_SMALLEST_RING_SIZE || type == ATOM_RSITE || type == HIGHLIGHTING ||
+       type == ATOM_TEMPLATE_SEQID)
+
       value_min = value_max = value;
    else
       throw Error("bad type: %d", type_);
@@ -459,7 +532,8 @@ QueryMolecule::Atom::Atom (int type_, int val_min, int val_max) : Node(type_)
 
 QueryMolecule::Atom::Atom (int type_, const char *value) : Node(type_)
 {
-   if (type_ == ATOM_PSEUDO)
+   if (type_ == ATOM_PSEUDO ||
+       type_ == ATOM_TEMPLATE || type_ == ATOM_TEMPLATE_CLASS)
       alias.readString(value, true);
    else
       throw Error("bad type: %d", type_);
@@ -1134,6 +1208,48 @@ bool QueryMolecule::Node::sureValueBelongs (int what_type, const int *arr, int c
    }
 }
 
+QueryMolecule::Atom* QueryMolecule::Atom::sureConstraint (int what_type)
+{
+   int count = 0;
+   Atom *found = (Atom*)_findSureConstraint(what_type, count);
+   if (count == 1)
+      return found;
+   return NULL;
+}
+
+QueryMolecule::Node* QueryMolecule::Node::_findSureConstraint (int what_type, int &count)
+{
+   switch (type)
+   {
+   case OP_AND:
+   case OP_OR:
+      {
+         Node *subnode_found = NULL;
+         for (int i = 0; i < children.size(); i++)
+         {
+            Node *subnode = children[i]->_findSureConstraint(what_type, count);
+            if (subnode != NULL)
+               subnode_found = subnode;
+         }
+         return subnode_found;
+      }
+   case OP_NOT:
+      {
+         Node *subnode = children[0]->_findSureConstraint(what_type, count);
+         return NULL; // Do not return anything in this case but increase count if found
+      }
+   case OP_NONE:
+      return NULL;
+   default:
+      if (type == what_type)
+      {
+         count++;
+         return this;
+      }
+      return NULL;
+   }
+}
+
 bool QueryMolecule::Node::sureValueBelongsInv (int what_type, const int *arr, int count)
 {
    int i;
@@ -1531,13 +1647,13 @@ void QueryMolecule::setBondStereoCare (int idx, bool stereo_care)
    updateEditRevision();
 }
 
-bool QueryMolecule::aromatize ()
+bool QueryMolecule::aromatize (const AromaticityOptions &options)
 {
    updateEditRevision();
-   return QueryMoleculeAromatizer::aromatizeBonds(*this);
+   return QueryMoleculeAromatizer::aromatizeBonds(*this, options);
 }
 
-bool QueryMolecule::dearomatize ()
+bool QueryMolecule::dearomatize (const AromaticityOptions &options)
 {
    throw Error("Dearomatization not implemented");
 }
@@ -1570,7 +1686,7 @@ int QueryMolecule::getAtomMaxH (int idx)
       if (!possibleAtomCharge(idx, charge))
          continue;
 
-      for (radical = 0; radical <= RADICAL_DOUPLET; radical++)
+      for (radical = 0; radical <= RADICAL_DOUBLET; radical++)
       {
          if (!possibleAtomRadical(idx, radical))
             continue;
@@ -1628,46 +1744,47 @@ int QueryMolecule::getAtomMinH (int idx)
          min_h++;
    }
 
-   if (stereocenters.getType(idx) > 0)
-   {
-      if (vertex.degree() == 3)
-      {
-         int number = getAtomNumber(idx);
-         int charge = getAtomCharge(idx);
-         
-         if (number == ELEM_C || number == ELEM_Si ||
-            (number == ELEM_N && charge == 1))
-            min_h++;
-      }
-   }
-   
-/* DP: this is an old piece of code. Not sure whether we need it.
-   for (i = query.edgeBegin(); i < query.edgeEnd(); i = query.edgeNext(i))
-   {
-      const Edge &edge = query.getEdge(i);
-      const QueryBond &query_bond = query.getQueryBond(i);
-
-      if (query.cis_trans.getParity(i) != 0)
-      {
-         const Atom &beg = query.getAtom(edge.beg);
-         const Atom &end = query.getAtom(edge.end);
-
-         bool beg_lost_h = ((beg.label == ELEM_C || beg.label == ELEM_Si) && beg.charge == 0 && beg.radical == 0) ||
-                            (beg.label == ELEM_N && beg.charge == 1 && beg.radical == 0);
-         bool end_lost_h = ((end.label == ELEM_C || end.label == ELEM_Si) && end.charge == 0 && end.radical == 0) ||
-                            (end.label == ELEM_N && end.charge == 1 && end.radical == 0);
-
-         if (query.getVertex(edge.beg).degree() < 3 && beg_lost_h)
-            counters[mapping == 0 ? edge.beg : mapping[edge.beg]]++;
-         if (query.getVertex(edge.end).degree() < 3 && end_lost_h)
-            counters[mapping == 0 ? edge.end : mapping[edge.end]]++;
-      }
-   } */
-
    _min_h.expandFill(idx + 1, -1);
    _min_h[idx] = min_h;
    return min_h;
 }
+
+int QueryMolecule::getAtomMaxExteralConnectivity (int idx)
+{
+   int number = getAtomNumber(idx);
+   if (number == -1)
+      return -1;
+
+   int min_local_h = _getAtomMinH(_atoms[idx]);
+   if (min_local_h == -1)
+      min_local_h = 0;
+   int min_conn = _calcAtomConnectivity(idx);
+   if (min_conn == -1)
+      min_conn = 0;
+
+   int max_conn = 0;
+   for (int charge = -5; charge <= 8; charge++)
+   {
+      if (!possibleAtomCharge(idx, charge))
+         continue;
+
+      for (int radical = 0; radical <= RADICAL_DOUBLET; radical++)
+      {
+         if (!possibleAtomRadical(idx, radical))
+            continue;
+
+         int cur_max_conn = Element::getMaximumConnectivity(number, charge, radical, true);
+         if (max_conn < cur_max_conn)
+            max_conn = cur_max_conn;
+      }
+   }
+
+   int ext_conn = max_conn - min_conn - min_local_h;
+   if (ext_conn < 0)
+      return 0;
+   return ext_conn;
+}
+
 
 int QueryMolecule::_getAtomMinH (QueryMolecule::Atom *atom)
 {
@@ -1731,14 +1848,14 @@ bool QueryMolecule::isRSite (int atom_idx)
    return _atoms[atom_idx]->sureValue(ATOM_RSITE, bits);
 }
 
-int QueryMolecule::getRSiteBits (int atom_idx)
+dword QueryMolecule::getRSiteBits (int atom_idx)
 {
    int bits;
 
    if (!_atoms[atom_idx]->sureValue(ATOM_RSITE, bits))
       throw Error("getRSiteBits(): atom #%d is not an r-site", atom_idx);
 
-   return bits;
+   return (dword)bits;
 }
 
 void QueryMolecule::allowRGroupOnRSite (int atom_idx, int rg_idx)
@@ -1783,7 +1900,9 @@ bool QueryMolecule::isKnownAttr (QueryMolecule::Atom& qa)
       qa.type == QueryMolecule::ATOM_VALENCE ||
       qa.type == QueryMolecule::ATOM_TOTAL_H ||
       qa.type == QueryMolecule::ATOM_SUBSTITUENTS ||
-      qa.type == QueryMolecule::ATOM_RING_BONDS ||
+      qa.type == QueryMolecule::ATOM_SUBSTITUENTS_AS_DRAWN ||
+      qa.type == QueryMolecule::ATOM_RING_BONDS || 
+      qa.type == QueryMolecule::ATOM_RING_BONDS_AS_DRAWN ||
       qa.type == QueryMolecule::ATOM_UNSATURATION) && 
       qa.value_max == qa.value_min;
 }
@@ -1895,6 +2014,9 @@ QueryMolecule::Bond* QueryMolecule::getBondOrderTerm (QueryMolecule::Bond& qb, b
 
 bool QueryMolecule::isOrBond (QueryMolecule::Bond& qb, int type1, int type2)
 {
+   if ((qb.type == OP_AND || qb.type == OP_OR) && qb.children.size() == 1)
+      return isOrBond(*qb.child(0), type1, type2);
+
    if (qb.type != QueryMolecule::OP_OR || qb.children.size() != 2)
       return false;
    QueryMolecule::Bond& b1 = *qb.child(0);
@@ -1908,6 +2030,9 @@ bool QueryMolecule::isOrBond (QueryMolecule::Bond& qb, int type1, int type2)
 
 bool QueryMolecule::isSingleOrDouble (QueryMolecule::Bond& qb)
 {
+   if ((qb.type == OP_AND || qb.type == OP_OR) && qb.children.size() == 1)
+      return isSingleOrDouble(*qb.child(0));
+
    if (qb.type != QueryMolecule::OP_AND || qb.children.size() != 2)
       return false;
    QueryMolecule::Bond& b1 = *qb.child(0);
@@ -1922,14 +2047,26 @@ bool QueryMolecule::isSingleOrDouble (QueryMolecule::Bond& qb)
    return true;
 }
 
-int QueryMolecule::getQueryBondType (QueryMolecule::Bond& qb) {
+int QueryMolecule::getQueryBondType (QueryMolecule::Bond& qb)
+{
    if (!qb.hasConstraint(QueryMolecule::BOND_ORDER))
       return QUERY_BOND_ANY;
-   if (isSingleOrDouble(qb) || isOrBond(qb, BOND_SINGLE, BOND_DOUBLE))
+
+   QueryMolecule::Bond* qb2 = &qb;
+   AutoPtr<QueryMolecule::Bond> qb_modified;
+   int topology;
+   if (qb.sureValue(QueryMolecule::BOND_TOPOLOGY, topology))
+   {
+      qb_modified.reset(qb.clone());
+      qb_modified->removeConstraints(QueryMolecule::BOND_TOPOLOGY);
+      qb2 = qb_modified.get();
+   }
+
+   if (isSingleOrDouble(*qb2) || isOrBond(*qb2, BOND_SINGLE, BOND_DOUBLE))
          return QUERY_BOND_SINGLE_OR_DOUBLE;
-   if (isOrBond(qb, BOND_SINGLE, BOND_AROMATIC))
+   if (isOrBond(*qb2, BOND_SINGLE, BOND_AROMATIC))
          return QUERY_BOND_SINGLE_OR_AROMATIC;
-   if (isOrBond(qb, BOND_DOUBLE, BOND_AROMATIC))
+   if (isOrBond(*qb2, BOND_DOUBLE, BOND_AROMATIC))
          return QUERY_BOND_DOUBLE_OR_AROMATIC;
    return -1;
 }
@@ -1946,4 +2083,10 @@ void QueryMolecule::optimize ()
    for (int i = vertexBegin(); i != vertexEnd(); i = vertexNext(i))
       getAtom(i).optimize();
    updateEditRevision();
+}
+
+bool QueryMolecule::standardize (const StandardizeOptions &options)
+{
+   updateEditRevision();
+   return MoleculeStandardizer::standardize(*this, options);
 }

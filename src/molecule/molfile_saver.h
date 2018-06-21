@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -41,6 +41,15 @@ public:
       MODE_3000      // force saving to v3000 format
    };
 
+   struct CIPContext
+   {
+      BaseMolecule *mol;
+      Array<int>   *used1;
+      Array<int>   *used2;
+      bool         next_level;
+      bool         isotope_check;
+   };
+
    MolfileSaver (Output &output);
 
    void saveBaseMolecule   (BaseMolecule &mol);
@@ -53,6 +62,7 @@ public:
    int mode; // one of MODE_***, MODE_AUTO by default
    bool no_chiral; // skip the 'chiral' flag, not regarding of the actual stereochemistry
    bool skip_date; // If true then zero date is written
+   bool add_stereo_desc; // If true then stereo descriptors will be added as DAT S-groups
 
    // optional parameters for reaction
    const Array<int>* reactionAtomMapping;
@@ -60,7 +70,7 @@ public:
    const Array<int>* reactionAtomExactChange;
    const Array<int>* reactionBondReactingCenter;
 
-   DEF_ERROR("molfile saver");
+   DECL_ERROR;
    
 protected:
    void _saveMolecule (BaseMolecule &mol, bool query);
@@ -72,20 +82,31 @@ protected:
    void _writeCtab (Output &output, BaseMolecule &mol, bool query);
    void _writeOccurrenceRanges (Output &out, const Array<int> &occurrences);
    void _writeRGroup (Output &output, BaseMolecule &mol, int rg_idx);
+   void _writeTGroup (Output &output, BaseMolecule &mol, int tg_idx);
    void _writeCtabHeader2000 (Output &output, BaseMolecule &mol);
    void _writeCtab2000 (Output &output, BaseMolecule &mol, bool query);
+   void _checkSGroupIndices (BaseMolecule &mol);
    void _writeRGroupIndices2000 (Output &output, BaseMolecule &mol);
    void _writeAttachmentValues2000 (Output &output, BaseMolecule &fragment);
-   void _writeGenericSGroup3000 (BaseMolecule::SGroup &sgroup, int idx, const char *type, Output &output);
-   void _writeDataSGroupDisplay (BaseMolecule::DataSGroup &datasgroup, Output &out);
+   void _writeGenericSGroup3000 (SGroup &sgroup, int idx, Output &output);
+   void _writeDataSGroupDisplay (DataSGroup &datasgroup, Output &out);
+   void _writeFormattedString(Output &output, Array<char> &str, int length);
    static bool _checkAttPointOrder (BaseMolecule &mol, int rsite);
    static bool _hasNeighborEitherBond (BaseMolecule &mol, int edge_idx);
 
    static int _getStereocenterParity (BaseMolecule &mol, int idx);
 
+   bool _getRingBondCountFlagValue (QueryMolecule &qmol, int idx, int &value);
+   bool _getSubstitutionCountFlagValue (QueryMolecule &qmol, int idx, int &value);
+
+   void _updateCIPStereoDescriptors(BaseMolecule &mol);
+   void _addCIPStereoDescriptors(BaseMolecule &mol);
+   static int _cip_rules_cmp (int &i1, int &i2, void *context);
+
    Output &_output;
    bool    _v2000;
 
+   CP_DECL;
    TL_CP_DECL(Array<int>, _atom_mapping);
    TL_CP_DECL(Array<int>, _bond_mapping);
 

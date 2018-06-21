@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -13,6 +13,10 @@
  ***************************************************************************/
 
 #include "indigo_internal.h"
+
+#include "base_cpp/output.h"
+#include "base_cpp/profiling.h"
+#include "base_cpp/temporary_thread_obj.h"
 #include "molecule/molecule_fingerprint.h"
 #include "reaction/rxnfile_saver.h"
 #include "molecule/molfile_saver.h"
@@ -29,13 +33,15 @@ CEXPORT const char * indigoVersion ()
    return INDIGO_VERSION;
 }
 
-Indigo::Indigo () : timeout_cancellation_handler(0)
+void Indigo::init ()
 {
+   timeout_cancellation_handler = 0;
+
    error_handler = 0;
    error_handler_context = 0;
    _next_id = 1001;
 
-   ignore_stereochemistry_errors = false;
+   stereochemistry_options.reset();
    ignore_noncritical_query_features = false;
    treat_x_as_pseudoatom = false;
    skip_3d_chirality = false;
@@ -59,10 +65,33 @@ Indigo::Indigo () : timeout_cancellation_handler(0)
 
    molfile_saving_skip_date = false;
 
+   molfile_saving_add_stereo_desc = false;
+
    smiles_saving_write_name = false;
 
    aam_cancellation_timeout = 0;
    cancellation_timeout = 0;
+
+   preserve_ordering_in_serialize = false;
+
+   unique_dearomatization = false;
+
+   arom_options = AromaticityOptions();
+
+   // Update global index
+   static ThreadSafeStaticObj<OsLock> lock;
+   {
+      OsLocker locker(lock.ref());
+      static int global_id;
+
+      _indigo_id = global_id++;
+   }
+}
+
+
+Indigo::Indigo ()
+{
+   init();
 }
 
 void Indigo::removeAllObjects ()
@@ -87,12 +116,14 @@ void Indigo::initMolfileSaver (MolfileSaver &saver)
    saver.mode = molfile_saving_mode;
    saver.skip_date = molfile_saving_skip_date;
    saver.no_chiral = molfile_saving_no_chiral;
+   saver.add_stereo_desc = molfile_saving_add_stereo_desc;
 }
 
 void Indigo::initRxnfileSaver (RxnfileSaver &saver)
 {
    saver.molfile_saving_mode = molfile_saving_mode;
    saver.skip_date = molfile_saving_skip_date;
+   saver.add_stereo_desc = molfile_saving_add_stereo_desc;
 }
 
 
@@ -101,9 +132,19 @@ Indigo::~Indigo ()
    removeAllObjects();
 }
 
+int Indigo::getId () const
+{
+   return _indigo_id;
+}
+
+
 CEXPORT qword indigoAllocSessionId ()
 {
-   return TL_ALLOC_SESSION_ID();
+   qword id = TL_ALLOC_SESSION_ID();
+   Indigo &indigo = indigo_self.getLocalCopy(id);
+   indigo.init();
+
+   return id;
 }
 
 CEXPORT void indigoSetSessionId (qword id)
@@ -141,6 +182,12 @@ CEXPORT int indigoFree (int handle)
    catch (Exception &)
    {
    }
+   return 1;
+}
+
+CEXPORT int indigoFreeAllObjects ()
+{
+   indigoGetInstance().removeAllObjects();
    return 1;
 }
 
@@ -201,6 +248,17 @@ int Indigo::countObjects ()
    return _objects.size();
 }
 
+static TemporaryThreadObjManager<Indigo::TmpData> _indigo_temporary_obj_manager;
+Indigo::TmpData& Indigo::getThreadTmpData ()
+{
+   return _indigo_temporary_obj_manager.getObject();
+}
+
+
+//
+// IndigoError
+//
+
 IndigoError::IndigoError (const char *format, ...) :
 Exception()
 {
@@ -215,6 +273,25 @@ IndigoError::IndigoError (const IndigoError &other) : Exception()
 {
    other._cloneTo(this);
 }
+
+//
+// IndigoPluginContext
+//
+IndigoPluginContext::IndigoPluginContext ()
+{
+   indigo_id = -1;
+}
+
+void IndigoPluginContext::validate ()
+{
+   Indigo &indigo = indigoGetInstance();
+   if (indigo.getId() != indigo_id)
+   {
+      init();
+      indigo_id = indigo.getId();
+   }
+}
+
 
 //
 // Options registrator
@@ -250,3 +327,41 @@ CEXPORT void indigoDbgBreakpoint (void)
 #else
 #endif
 }
+
+CEXPORT const char * indigoDbgProfiling (int whole_session)
+{
+   INDIGO_BEGIN
+   {
+      auto &tmp = self.getThreadTmpData();
+      ArrayOutput out(tmp.string);
+      profGetStatistics(out, whole_session != 0);
+
+      tmp.string.push(0);
+      return tmp.string.ptr();
+   }
+   INDIGO_END(0);
+}
+
+CEXPORT int indigoDbgResetProfiling (int whole_session)
+{
+   INDIGO_BEGIN
+   {
+      if (whole_session)
+         profTimersResetSession();
+      else
+         profTimersReset();
+
+      return 1;
+   }
+   INDIGO_END(-1);
+}
+
+CEXPORT qword indigoDbgProfilingGetCounter (const char *name, int whole_session)
+{
+   INDIGO_BEGIN
+   {
+      return indigo::ProfilingSystem::getInstance().getLabelCallCount(name, whole_session != 0);
+   }
+   INDIGO_END(-1);
+}
+

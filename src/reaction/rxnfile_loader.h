@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -16,6 +16,7 @@
 #define __rxnfile_loader__
 
 #include "base_cpp/exception.h"
+#include "molecule/molecule_stereocenter_options.h"
 
 namespace indigo {
 
@@ -35,10 +36,10 @@ public:
 
 
    bool treat_x_as_pseudoatom;
-   bool ignore_stereocenter_errors;
+   StereocentersOptions stereochemistry_options;
    bool ignore_noncritical_query_features;
    
-   DEF_ERROR("RXN loader");
+   DECL_ERROR;
 protected:
 
    BaseReaction  *_brxn;

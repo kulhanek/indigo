@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -26,6 +26,8 @@
 #include "molecule/icm_saver.h"
 #include "molecule/molecule_cml_saver.h"
 
+#include "molecule/inchi_wrapper.h"
+
 using namespace indigo::bingo_core;
 
 CEXPORT int mangoIndexProcessSingleRecord ()
@@ -50,11 +52,23 @@ CEXPORT int mangoIndexProcessSingleRecord ()
             self.mango_index = self.single_mango_index.get();
             self.mango_index->prepare(scanner, output, NULL);
          }
-         catch (CmfSaver::Error &e) { self.warning.readString(e.message(), true); return 0; }
+         catch (CmfSaver::Error &e) 
+         { 
+            if (self.bingo_context->reject_invalid_structures)
+               throw;
+            self.warning.readString(e.message(), true);
+            return 0; 
+         }
       }
-      CATCH_READ_TARGET_MOL(self.warning.readString(e.message(), true); return 0;);
+      CATCH_READ_TARGET_MOL({
+         if (self.bingo_context->reject_invalid_structures)
+            throw;
+
+         self.warning.readString(e.message(), true);
+         return 0;
+      });
    }
-   BINGO_END(1, 0)
+   BINGO_END(1, -1)
 }
 
 CEXPORT int mangoIndexReadPreparedMolecule (int *id,
@@ -137,6 +151,9 @@ CEXPORT int mangoGetHash (bool for_index, int index, int *count, dword *hash)
 
 void _mangoCheckPseudoAndCBDM (BingoCore &self)
 {
+   if (self.bingo_context == 0)
+      throw BingoError("context not set");
+    
    if (self.mango_context == 0)
       throw BingoError("context not set");
 
@@ -257,12 +274,9 @@ CEXPORT int mangoSetupMatch (const char *search_type, const char *query, const c
             self.mango_search_type = BingoCore::_GROSS;
             return 1;
          }
-         else
-         {
-            self.mango_search_type = BingoCore::_UNDEF;
-            throw BingoError("Unknown search type '%s' or options string '%s'", 
-               search_type, options);
-         }
+         self.mango_search_type = BingoCore::_UNDEF;
+         throw BingoError("Unknown search type '%s' or options string '%s'", 
+            search_type, options);
       }
       CATCH_READ_TARGET_MOL(self.error.readString(e.message(), 1); return -1;);
    }
@@ -516,14 +530,11 @@ CEXPORT const char * mangoSMILES (const char *target_buf, int target_buf_len, in
       QS_DEF(Molecule, target);
 
       MoleculeAutoLoader loader(scanner);
-
-      loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      loader.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
+      self.bingo_context->setLoaderSettings(loader);
       loader.loadMolecule(target);
 
       if (canonical)
-         MoleculeAromatizer::aromatizeBonds(target);
+         MoleculeAromatizer::aromatizeBonds(target, AromaticityOptions::BASIC);
 
       ArrayOutput out(self.buffer);
 
@@ -555,10 +566,7 @@ CEXPORT const char * mangoMolfile (const char *molecule, int molecule_len)
       QS_DEF(Molecule, target);
 
       MoleculeAutoLoader loader(scanner);
-
-      loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      loader.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
+      self.bingo_context->setLoaderSettings(loader);
       loader.loadMolecule(target);
 
       ArrayOutput out(self.buffer);
@@ -584,10 +592,7 @@ CEXPORT const char * mangoCML (const char *molecule, int molecule_len)
       QS_DEF(Molecule, target);
 
       MoleculeAutoLoader loader(scanner);
-
-      loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      loader.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
+      self.bingo_context->setLoaderSettings(loader);
       loader.loadMolecule(target);
 
       ArrayOutput out(self.buffer);
@@ -707,10 +712,7 @@ CEXPORT int mangoMass (const char *target_buf, int target_buf_len, const char *t
       QS_DEF(Molecule, target);
 
       MoleculeAutoLoader loader(scanner);
-
-      loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      loader.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
+      self.bingo_context->setLoaderSettings(loader);
       loader.skip_3d_chirality = true;
       loader.loadMolecule(target);
 
@@ -742,10 +744,7 @@ CEXPORT const char* mangoGross (const char *target_buf, int target_buf_len)
       QS_DEF(Molecule, target);
 
       MoleculeAutoLoader loader(scanner);
-
-      loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      loader.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
+      self.bingo_context->setLoaderSettings(loader);
       loader.loadMolecule(target);
 
       QS_DEF(Array<int>, gross);
@@ -785,9 +784,7 @@ CEXPORT const char * mangoCheckMolecule (const char *molecule, int molecule_len)
 
          BufferScanner molecule_scanner(molecule, molecule_len);
          MoleculeAutoLoader loader(molecule_scanner);
-         loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-         loader.ignore_closing_bond_direction_mismatch =
-            self.bingo_context->ignore_closing_bond_direction_mismatch;
+         self.bingo_context->setLoaderSettings(loader);
          loader.loadMolecule(mol);
          Molecule::checkForConsistency(mol);
       }                               
@@ -819,10 +816,7 @@ CEXPORT const char* mangoICM (const char* molecule, int molecule_len, bool save_
       QS_DEF(Molecule, target);
 
       MoleculeAutoLoader loader(scanner);
-
-      loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      loader.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
+      self.bingo_context->setLoaderSettings(loader);
       loader.loadMolecule(target);
 
       ArrayOutput out(self.buffer);
@@ -835,6 +829,74 @@ CEXPORT const char* mangoICM (const char* molecule, int molecule_len, bool save_
       saver.saveMolecule(target);
 
       *out_len = self.buffer.size();
+      return self.buffer.ptr();
+   }
+   BINGO_END(0, 0)
+}
+
+CEXPORT const char* mangoFingerprint(const char* molecule, int molecule_len, const char* options, int *out_len)
+{
+   BINGO_BEGIN
+   {
+      _mangoCheckPseudoAndCBDM(self);
+
+      if (!self.bingo_context->fp_parameters_ready)
+         throw BingoError("Fingerprint settings not ready");
+
+      BufferScanner scanner(molecule, molecule_len);
+
+      QS_DEF(Molecule, target);
+
+      MoleculeAutoLoader loader(scanner);
+      self.bingo_context->setLoaderSettings(loader);
+      loader.loadMolecule(target);
+
+      MoleculeFingerprintBuilder builder(target, self.bingo_context->fp_parameters);
+      builder.parseFingerprintType(options, false);
+
+      builder.process();
+
+      const char* buf = (const char*)builder.get();
+      int buf_len = self.bingo_context->fp_parameters.fingerprintSize();
+
+      self.buffer.copy(buf, buf_len);
+
+      *out_len = self.buffer.size();
+      return self.buffer.ptr();
+   }
+   BINGO_END(0, 0)
+}
+
+CEXPORT const char* mangoInChI(const char* molecule, int molecule_len, const char* options, int *out_len)
+{
+   BINGO_BEGIN
+   {
+      _mangoCheckPseudoAndCBDM(self);
+
+      BufferScanner scanner(molecule, molecule_len);
+
+      QS_DEF(Molecule, target);
+
+      MoleculeAutoLoader loader(scanner);
+      self.bingo_context->setLoaderSettings(loader);
+      loader.loadMolecule(target);
+
+      InchiWrapper inchi;
+      inchi.setOptions(options);
+      inchi.saveMoleculeIntoInchi(target, self.buffer);
+      
+      *out_len = self.buffer.size();
+
+      return self.buffer.ptr();
+   }
+   BINGO_END(0, 0)
+}
+
+CEXPORT const char* mangoInChIKey(const char* inchi)
+{
+   BINGO_BEGIN
+   {
+      InchiWrapper::InChIKey(inchi, self.buffer);
       return self.buffer.ptr();
    }
    BINGO_END(0, 0)

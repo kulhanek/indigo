@@ -1,3 +1,5 @@
+#include "bingo_pg_fix_pre.h"
+
 extern "C" {
 #include "postgres.h"
 #include "fmgr.h"
@@ -9,9 +11,7 @@ extern "C" {
 #include "storage/lock.h"
 }
 
-#ifdef qsort
-#undef qsort
-#endif
+#include "bingo_pg_fix_post.h"
 
 #include "bingo_pg_buffer.h"
 #include "base_cpp/array.h"
@@ -20,6 +20,9 @@ extern "C" {
 #include "base_cpp/tlscont.h"
 
 using namespace indigo;
+
+IMPL_ERROR(BingoPgBuffer, "bingo buffer");
+
 /*
  * Empty buffer constructor
  */
@@ -31,13 +34,19 @@ _blockIdx(0){
 /*
  * New buffer constructor
  */
-BingoPgBuffer::BingoPgBuffer(PG_OBJECT rel_ptr, unsigned int block_num) {
+BingoPgBuffer::BingoPgBuffer(PG_OBJECT rel_ptr, unsigned int block_num):
+_buffer(InvalidBuffer),
+_lock(BINGO_PG_NOLOCK),
+_blockIdx(0) {
    writeNewBuffer(rel_ptr, block_num);
 }
 /*
  * Existing buffer constructor
  */
-BingoPgBuffer::BingoPgBuffer(PG_OBJECT rel_ptr, unsigned int block_num, int lock) {
+BingoPgBuffer::BingoPgBuffer(PG_OBJECT rel_ptr, unsigned int block_num, int lock):
+_buffer(InvalidBuffer),
+_lock(BINGO_PG_NOLOCK),
+_blockIdx(0) {
    readBuffer(rel_ptr, block_num, lock);
 }
 /*
@@ -111,7 +120,7 @@ int BingoPgBuffer::writeNewBuffer(PG_OBJECT rel_ptr, unsigned int block_num) {
               buffer_block_num, block_num);
    } else {
       BINGO_PG_TRY {
-         _buffer = ReadBufferExtended(rel, MAIN_FORKNUM,  block_num, RBM_ZERO, NULL);
+         _buffer = ReadBufferExtended(rel, MAIN_FORKNUM,  block_num, RBM_NORMAL, NULL);
       } BINGO_PG_HANDLE(throw Error("internal error: can not extend the existing buffer: %s", message));
    }
    /*

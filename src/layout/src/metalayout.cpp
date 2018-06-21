@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -34,8 +34,10 @@ void Metalayout::LayoutLine::clear ()
       width = 0;
 }
 
+IMPL_ERROR(Metalayout, "metalayout");
+
 Metalayout::Metalayout () :
-horizontalIntervalFactor(0.4f), verticalIntervalFactor(0.6f), bondLength(1.0f), _avel(1.0f), _scaleFactor(1.0f)
+horizontalIntervalFactor(1.4f), verticalIntervalFactor(0.8f), bondLength(1.0f), _avel(1.0f), _scaleFactor(1.0f)
 {
    clear();
 }
@@ -85,16 +87,16 @@ void Metalayout::process()
    for (int i = 0; i < _layout.size(); ++i)
    {
       LayoutLine& line = _layout[i];
-      pos.y += line.height / 2;
+      pos.y -= line.height / 2;
       pos.x = 0;
 
       for (int j = 0; j < line.items.size(); ++j)
       {
          LayoutItem& item = line.items[j];
          cb_process(item, pos, context);
-         pos.x += item.scaledSize.x + horizontalIntervalFactor;
+         pos.x += item.scaledSize.x + horizontalIntervalFactor * bondLength;
       }
-      pos.y += line.height / 2 + verticalIntervalFactor;
+      pos.y -= line.height / 2 + verticalIntervalFactor * bondLength;
    }
 }
 
@@ -116,13 +118,13 @@ void Metalayout::calcContentSize()
          else
             line.height = __max(line.height, item.scaledSize.y);
       }
-      line.width += horizontalIntervalFactor * (line.items.size() - 1);
+      line.width += horizontalIntervalFactor * bondLength * (line.items.size() - 1);
       _contentSize.x = __max(_contentSize.x, line.width);
       _contentSize.y += line.height;
       if (regularWidth < line.width)
          regularWidth = line.width;
    }
-   _contentSize.y += verticalIntervalFactor * (_layout.size() - 1);
+   _contentSize.y += verticalIntervalFactor * bondLength * (_layout.size() - 1);
 }
 
 void Metalayout::scaleSz()
@@ -134,6 +136,7 @@ void Metalayout::scaleSz()
          if (item.fragment) {
             item.scaledSize.diff(item.max, item.min);
             item.scaledSize.scale(_scaleFactor);
+            item.scaledSize.max(Vec2f(bondLength, bondLength));
          }
       }
 }
@@ -261,6 +264,20 @@ void Metalayout::adjustMol (BaseMolecule& mol, const Vec2f& min, const Vec2f& po
 {
    float scaleFactor = getScaleFactor();
 
+   // Compute center points for the data sgroups
+   QS_DEF(Array<Vec2f>, data_centers);
+   data_centers.resize(mol.sgroups.getSGroupCount());
+   for (int i = mol.sgroups.begin(); i != mol.sgroups.end(); i = mol.sgroups.next(i))
+   {
+      SGroup &sg = mol.sgroups.getSGroup(i);
+      if (sg.sgroup_type == SGroup::SG_TYPE_DAT)
+      {
+         DataSGroup &group = (DataSGroup &)sg;
+         if (!group.relative)
+            mol.getSGroupAtomsCenterPoint(group, data_centers[i]);
+      }
+   }
+
    for (int i = mol.vertexBegin(); i < mol.vertexEnd(); i = mol.vertexNext(i))
    {
       Vec2f v;
@@ -268,7 +285,23 @@ void Metalayout::adjustMol (BaseMolecule& mol, const Vec2f& min, const Vec2f& po
       v.sub(min);
       v.scale(scaleFactor);
       v.add(pos);
-      v.y = -v.y;
       mol.setAtomXyz(i, v.x, v.y, 0);
    }  
+
+   // Adjust data-sgroup label positions with absolute coordinates
+   for (int i = mol.sgroups.begin(); i != mol.sgroups.end(); i = mol.sgroups.next(i))
+   {
+      SGroup &sg = mol.sgroups.getSGroup(i);
+      if (sg.sgroup_type == SGroup::SG_TYPE_DAT)
+      {
+         DataSGroup &group = (DataSGroup &)sg;
+         if (!group.relative)
+         {
+            Vec2f new_center;
+            mol.getSGroupAtomsCenterPoint(group, new_center);
+            group.display_pos.add(new_center);
+            group.display_pos.sub(data_centers[i]);
+         }
+      }
+   }
 }

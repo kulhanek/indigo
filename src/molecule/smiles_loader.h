@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -19,6 +19,7 @@
 #include "molecule/molecule.h"
 #include "base_cpp/tlscont.h"
 #include "molecule/query_molecule.h"
+#include "molecule/molecule_stereocenter_options.h"
 
 #ifdef _WIN32
 #pragma warning(push)
@@ -35,7 +36,7 @@ class QueryMolecule;
 class DLLEXPORT SmilesLoader
 {
 public:
-   DEF_ERROR("SMILES loader");
+   DECL_ERROR;
 
    SmilesLoader (Scanner &scanner);
    ~SmilesLoader ();
@@ -57,7 +58,8 @@ public:
    //  for details)
    bool ignore_closing_bond_direction_mismatch;
 
-   bool ignore_stereochemistry_errors;
+   StereocentersOptions stereochemistry_options;
+   bool ignore_cistrans_errors;
 
 protected:
 
@@ -128,6 +130,7 @@ protected:
 
    Scanner &_scanner;
 
+   CP_DECL;
    TL_CP_DECL(Array<int>, _atom_stack);
    TL_CP_DECL(Array<_CycleDesc>, _cycles);
    TL_CP_DECL(StringPool, _pending_bonds_pool);
@@ -154,6 +157,9 @@ protected:
    void _markAromaticBonds ();
    void _setRadicalsAndHCounts ();
    void _forbidHydrogens ();
+   void _addExplicitHForStereo ();
+   void _addLigandsForStereo ();
+   bool _isAlleneLike (int i);
    void _handleCurlyBrace (_AtomDesc &atom, bool &inside_polymer);
    void _handlePolymerRepetition (int i);
 

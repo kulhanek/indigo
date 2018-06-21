@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -19,6 +19,7 @@
 #include "molecule/elements.h"
 #include "molecule/molecule_arom.h"
 #include "molecule/molecule_dearom.h"
+#include "molecule/molecule_standardize.h"
 
 using namespace indigo;
 
@@ -49,6 +50,9 @@ void Molecule::clear ()
    _total_h.clear();
    _valence.clear();
    _radicals.clear();
+   _template_occurrences.clear();
+   _template_names.clear();
+   _template_classes.clear();
 
    _aromatized = false;
    updateEditRevision();
@@ -79,6 +83,13 @@ void Molecule::_mergeWithSubmolecule (BaseMolecule &bmol, const Array<int> &vert
 
       if (mol.isPseudoAtom(vertices[i]))
          setPseudoAtom(newidx, mol.getPseudoAtom(vertices[i]));
+
+      if (mol.isTemplateAtom(vertices[i]))
+      {
+         setTemplateAtom(newidx, mol.getTemplateAtom(vertices[i]));
+         setTemplateAtomClass(newidx, mol.getTemplateAtomClass(vertices[i]));
+         setTemplateAtomSeqid(newidx, mol.getTemplateAtomSeqid(vertices[i]));
+      }
 
       bool nei_mapped = 
          (getVertex(newidx).degree() == mol.getVertex(vertices[i]).degree());
@@ -164,8 +175,8 @@ void Molecule::_validateVertexConnectivity (int idx, bool validate)
    if (validate)
    {
       getAtomConnectivity_noImplH(idx);
-      getImplicitH(idx);
-      getAtomValence(idx);
+      getImplicitH_NoThrow(idx, -1);
+      getAtomValence_NoThrow(idx, -1);
    }
    else
    {
@@ -189,6 +200,16 @@ void Molecule::_validateVertexConnectivity (int idx, bool validate)
       }
    }
    updateEditRevision();
+}
+
+void Molecule::_invalidateVertexCache (int idx)
+{
+   if (!isExplicitValenceSet(idx) && _valence.size() > idx)
+      _valence[idx] = -1;
+   if (!isImplicitHSet(idx) && _implicit_h.size() > idx)
+      _implicit_h[idx] = -1;
+   if (_total_h.size() > idx)
+      _total_h[idx] = -1;
 }
 
 void Molecule::setBondOrder (int idx, int order, bool keep_connectivity)
@@ -255,6 +276,7 @@ void Molecule::setAtomRadical (int idx, int radical)
 {
    _radicals.expandFill(idx + 1, -1);
    _radicals[idx] = radical;
+   _invalidateVertexCache(idx);
    updateEditRevision();
 }
 
@@ -263,6 +285,7 @@ void Molecule::setExplicitValence (int idx, int valence)
    _valence.expandFill(idx + 1, -1);
    _valence[idx] = valence;
    _atoms[idx].explicit_valence = true;
+   _invalidateVertexCache(idx);
    updateEditRevision();
 }
 
@@ -271,6 +294,7 @@ void Molecule::resetExplicitValence (int idx)
    if (_valence.size() > idx)
       _valence[idx] = -1;
    _atoms[idx].explicit_valence = false;
+   _invalidateVertexCache(idx);
    updateEditRevision();
 }
 
@@ -291,6 +315,7 @@ void Molecule::setImplicitH (int idx, int impl_h)
    _implicit_h.expandFill(idx + 1, -1);
    _implicit_h[idx] = impl_h;
    _atoms[idx].explicit_impl_h = true;
+   _invalidateVertexCache(idx);
    updateEditRevision();
 }
 
@@ -304,6 +329,47 @@ void Molecule::setPseudoAtom (int idx, const char *text)
    _atoms[idx].number = ELEM_PSEUDO;
    _atoms[idx].pseudoatom_value_idx = _pseudo_atom_values.add(text);
    // TODO: take care of memory allocated here in _pseudo_atom_values
+   updateEditRevision();
+}
+
+void Molecule::setTemplateAtom (int idx, const char *text)
+{
+   _atoms[idx].number = ELEM_TEMPLATE;
+   _atoms[idx].template_occur_idx = _template_occurrences.add();
+   _TemplateOccurrence &occur = _template_occurrences.at(_atoms[idx].template_occur_idx);
+   occur.name_idx = _template_names.add(text);
+   occur.seq_id = -1;
+   occur.contracted = -1;
+   updateEditRevision();
+}
+
+void Molecule::setTemplateAtomClass (int idx, const char *text)
+{
+   if (_atoms[idx].number != ELEM_TEMPLATE)
+      throw Error("setTemplateAtomClass(): atom #%d is not a template atom", idx);
+
+   _TemplateOccurrence &occur = _template_occurrences.at(_atoms[idx].template_occur_idx);
+   occur.class_idx = _template_classes.add(text);
+   updateEditRevision();
+}
+
+void Molecule::setTemplateAtomSeqid (int idx, int seq_id)
+{
+   if (_atoms[idx].number != ELEM_TEMPLATE)
+      throw Error("setTemplateAtomSeqid(): atom #%d is not a template atom", idx);
+
+   _TemplateOccurrence &occur = _template_occurrences.at(_atoms[idx].template_occur_idx);
+   occur.seq_id = seq_id;
+   updateEditRevision();
+}
+
+void Molecule::setTemplateAtomDisplayOption (int idx, int option)
+{
+   if (_atoms[idx].number != ELEM_TEMPLATE)
+      throw Error("setTemplateAtomDisplayOption(): atom #%d is not a template atom", idx);
+
+   _TemplateOccurrence &occur = _template_occurrences.at(_atoms[idx].template_occur_idx);
+   occur.contracted = option;
    updateEditRevision();
 }
 
@@ -331,6 +397,18 @@ int Molecule::getAtomConnectivity (int idx)
    int impl_h = getImplicitH(idx);
 
    return impl_h + conn;
+}
+
+int Molecule::getAtomConnectivity_NoThrow (int idx, int fallback)
+{
+   try
+   {
+      return getAtomConnectivity(idx);
+   }
+   catch (Element::Error &)
+   {
+      return fallback;
+   }
 }
 
 int Molecule::getAtomConnectivity_noImplH (int idx)
@@ -397,6 +475,9 @@ void Molecule::calcAromaticAtomConnectivity (int idx, int &n_arom, int &min_conn
       else
          min_conn += order;
    }
+
+   if (isImplicitHSet(idx))
+      min_conn += getImplicitH(idx);
 }
 
 
@@ -425,6 +506,12 @@ int Molecule::matchAtomsCmp (Graph &g1, Graph &g2,
       return 1;
 
    if (!m1.isPseudoAtom(idx1) && m2.isPseudoAtom(idx2))
+      return -1;
+
+   if (m1.isTemplateAtom(idx1) && !m2.isTemplateAtom(idx2))
+      return 1;
+
+   if (!m1.isTemplateAtom(idx1) && m2.isTemplateAtom(idx2))
       return -1;
 
    if (m1.isRSite(idx1) && !m2.isRSite(idx2))
@@ -466,6 +553,14 @@ int Molecule::matchAtomsCmp (Graph &g1, Graph &g2,
    if (m1.isPseudoAtom(idx1) && m2.isPseudoAtom(idx2))
    {
       int res = strcmp(m1.getPseudoAtom(idx1), m2.getPseudoAtom(idx2));
+
+      if (res != 0)
+         return res;
+      pseudo = true;
+   }
+   else if (m1.isTemplateAtom(idx1) && m2.isTemplateAtom(idx2))
+   {
+      int res = strcmp(m1.getTemplateAtom(idx1), m2.getTemplateAtom(idx2));
 
       if (res != 0)
          return res;
@@ -544,7 +639,7 @@ void Molecule::_removeAtoms (const Array<int> &indices, const int *mapping)
          // Precalculate and store into cache number of implicit hydrogens
          // This is required for correct hydrogens unfolding for molecules 
          // like [H]S([H])([H])C (that is seems to be invalid)
-         if (!isRSite(nei) && !isPseudoAtom(nei))
+		 if (!isRSite(nei) && !isPseudoAtom(nei) && !isTemplateAtom(nei))
             if (_implicit_h.size() <= nei || _implicit_h[nei] < 0)
                getImplicitH_NoThrow(nei, -1);
 
@@ -576,7 +671,7 @@ void Molecule::_removeAtoms (const Array<int> &indices, const int *mapping)
    updateEditRevision();
 }
 
-void Molecule::unfoldHydrogens (Array<int> *markers_out, int max_h_cnt)
+void Molecule::unfoldHydrogens (Array<int> *markers_out, int max_h_cnt, bool impl_h_no_throw)
 {
    int v_end = vertexEnd();
 
@@ -588,10 +683,13 @@ void Molecule::unfoldHydrogens (Array<int> *markers_out, int max_h_cnt)
    // before unfolding them
    for (int i = vertexBegin(); i < v_end; i = vertexNext(i))
    {
-      if (isPseudoAtom(i) || isRSite(i))
+      if (isPseudoAtom(i) || isRSite(i) || isTemplateAtom(i))
          continue;
 
-      imp_h_count[i] = getImplicitH(i);
+      if (impl_h_no_throw)
+         imp_h_count[i] = getImplicitH_NoThrow(i, 0);
+      else
+         imp_h_count[i] = getImplicitH(i);
    }
 
    if (markers_out != 0)
@@ -626,6 +724,7 @@ void Molecule::unfoldHydrogens (Array<int> *markers_out, int max_h_cnt)
          stereocenters.registerUnfoldedHydrogen(i, new_h_idx);
          cis_trans.registerUnfoldedHydrogen(i, new_h_idx);
          allene_stereo.registerUnfoldedHydrogen(i, new_h_idx);
+         sgroups.registerUnfoldedHydrogen(i, new_h_idx);
       }
 
       _validateVertexConnectivity(i, false);
@@ -762,8 +861,8 @@ int Molecule::_getImplicitHForConnectivity (int idx, int conn, bool use_cache)
                radical = 0;
             else if (Element::calcValence(atom.number, atom.charge, RADICAL_SINGLET, conn, valence, impl_h, false))
                radical = RADICAL_SINGLET;
-            else if (Element::calcValence(atom.number, atom.charge, RADICAL_DOUPLET, conn, valence, impl_h, false))
-               radical = RADICAL_DOUPLET;
+            else if (Element::calcValence(atom.number, atom.charge, RADICAL_DOUBLET, conn, valence, impl_h, false))
+               radical = RADICAL_DOUBLET;
             else
                throw Element::Error("can not calculate valence on %s, charge %d, connectivity %d",
                        Element::toString(atom.number), atom.charge, conn);
@@ -836,6 +935,9 @@ int Molecule::getAtomValence (int idx)
    if (_atoms[idx].number == ELEM_PSEUDO)
       throw Error("getAtomValence() does not work on pseudo-atoms");
 
+   if (_atoms[idx].number == ELEM_TEMPLATE)
+      throw Error("getAtomValence() does not work on template atoms");
+
    if (_atoms[idx].number == ELEM_RSITE)
       throw Error("getAtomValence() does not work on R-sites");
 
@@ -895,9 +997,9 @@ int Molecule::getAtomValence (int idx)
          else if (Element::calcValence(atom.number, atom.charge, RADICAL_SINGLET, conn, valence, normal_impl_h, false) &&
                  normal_impl_h == impl_h)
             radical = RADICAL_SINGLET; // [CH2]
-         else if (Element::calcValence(atom.number, atom.charge, RADICAL_DOUPLET, conn, valence, normal_impl_h, false) &&
+         else if (Element::calcValence(atom.number, atom.charge, RADICAL_DOUBLET, conn, valence, normal_impl_h, false) &&
                  normal_impl_h == impl_h)
-            radical = RADICAL_DOUPLET; // [CH3]
+            radical = RADICAL_DOUBLET; // [CH3]
          else if (Element::calcValence(atom.number, atom.charge, 0, conn + impl_h, valence, normal_impl_h, false) &&
                  normal_impl_h == 0)
          {
@@ -912,10 +1014,10 @@ int Molecule::getAtomValence (int idx)
             valence = conn + impl_h;
             unusual_valence = true;
          }
-         else if (Element::calcValence(atom.number, atom.charge, RADICAL_DOUPLET, conn + impl_h, valence, normal_impl_h, false) &&
+         else if (Element::calcValence(atom.number, atom.charge, RADICAL_DOUBLET, conn + impl_h, valence, normal_impl_h, false) &&
                  normal_impl_h == 0)
          {
-            radical = RADICAL_DOUPLET; // [PH4]
+            radical = RADICAL_DOUBLET; // [PH4]
             valence = conn + impl_h;
             unusual_valence = true;
          }
@@ -953,8 +1055,8 @@ int Molecule::getAtomValence (int idx)
             radical = 0;
          else if (Element::calcValence(atom.number, atom.charge, RADICAL_SINGLET, conn, valence, impl_h, false))
             radical = RADICAL_SINGLET;
-         else if (Element::calcValence(atom.number, atom.charge, RADICAL_DOUPLET, conn, valence, impl_h, false))
-            radical = RADICAL_DOUPLET;
+         else if (Element::calcValence(atom.number, atom.charge, RADICAL_DOUBLET, conn, valence, impl_h, false))
+            radical = RADICAL_DOUBLET;
          else
             throw Element::Error("can not calculate valence on %s, charge %d, connectivity %d",
                     Element::toString(atom.number), atom.charge, conn);
@@ -1070,7 +1172,8 @@ int Molecule::getExplicitValence (int idx)
    if (_atoms[idx].explicit_valence)
       return _valence[idx];
 
-   if (_atoms[idx].number == ELEM_PSEUDO || _atoms[idx].number == ELEM_RSITE)
+   if (_atoms[idx].number == ELEM_PSEUDO || _atoms[idx].number == ELEM_RSITE ||
+       _atoms[idx].number == ELEM_TEMPLATE)
       return -1;
 
    // try to calculate explicit valence from hydrogens, as in elemental carbon [C]
@@ -1136,6 +1239,8 @@ void Molecule::getAtomDescription (int idx, Array<char> &description)
 
    if (isPseudoAtom(idx))
       output.printf("%s", getPseudoAtom(idx));
+   else if (isTemplateAtom(idx))
+      output.printf("%s", getTemplateAtom(idx));
    else
       output.printf("%s", Element::toString(atom.number));
 
@@ -1237,6 +1342,67 @@ const char * Molecule::getPseudoAtom (int idx)
    return res;
 }
 
+bool Molecule::isTemplateAtom (int idx)
+{
+   return _atoms[idx].number == ELEM_TEMPLATE;
+}
+
+const char * Molecule::getTemplateAtom (int idx)
+{
+   const _Atom &atom = _atoms[idx];
+   
+   if (atom.number != ELEM_TEMPLATE)
+      throw Error("getTemplateAtom(): atom #%d is not a template atom", idx);
+
+   _TemplateOccurrence &occur = _template_occurrences.at(atom.template_occur_idx);
+   const char *res = _template_names.at(occur.name_idx);
+
+   if (res == 0)
+      throw Error("template atom string is zero");
+
+   return res;
+}
+
+const char * Molecule::getTemplateAtomClass (int idx)
+{
+   const _Atom &atom = _atoms[idx];
+   
+   if (atom.number != ELEM_TEMPLATE)
+      throw Error("getTemplateAtomClass(): atom #%d is not a template atom", idx);
+
+   _TemplateOccurrence &occur = _template_occurrences.at(atom.template_occur_idx);
+   const char *res = _template_classes.at(occur.class_idx);
+
+   return res;
+}
+
+const int Molecule::getTemplateAtomSeqid (int idx)
+{
+   const _Atom &atom = _atoms[idx];
+   
+   if (atom.number != ELEM_TEMPLATE)
+      throw Error("getTemplateAtomSeqid(): atom #%d is not a template atom", idx);
+
+   _TemplateOccurrence &occur = _template_occurrences.at(atom.template_occur_idx);
+   const int res = occur.seq_id;
+
+   return res;
+}
+
+const int Molecule::getTemplateAtomDisplayOption (int idx)
+{
+   const _Atom &atom = _atoms[idx];
+   
+   if (atom.number != ELEM_TEMPLATE)
+      throw Error("getTemplateAtomDisplayOption(): atom #%d is not a template atom", idx);
+
+   _TemplateOccurrence &occur = _template_occurrences.at(atom.template_occur_idx);
+   const int res = occur.contracted;
+
+   return res;
+}
+
+
 BaseMolecule * Molecule::neu ()
 {
    return new Molecule();
@@ -1250,18 +1416,18 @@ bool Molecule::bondStereoCare (int idx)
    return cis_trans.getParity(idx) != 0;
 }
 
-bool Molecule::aromatize ()
+bool Molecule::aromatize (const AromaticityOptions &options)
 {
    updateEditRevision();
-   bool arom_found = MoleculeAromatizer::aromatizeBonds(*this);
+   bool arom_found = MoleculeAromatizer::aromatizeBonds(*this, options);
    _aromatized = true;
    return arom_found;
 }
 
-bool Molecule::dearomatize ()
+bool Molecule::dearomatize (const AromaticityOptions &options)
 {
    updateEditRevision();
-   return MoleculeDearomatizer::dearomatizeMolecule(*this);
+   return MoleculeDearomatizer::dearomatizeMolecule(*this, options);
 }
 
 int Molecule::getAtomMaxH (int idx)
@@ -1298,7 +1464,7 @@ bool Molecule::isRSite (int atom_idx)
    return _atoms[atom_idx].number == ELEM_RSITE;
 }
 
-int Molecule::getRSiteBits (int atom_idx)
+dword Molecule::getRSiteBits (int atom_idx)
 {
    if (_atoms[atom_idx].number != ELEM_RSITE)
       throw Error("getRSiteBits(): atom #%d is not an r-site", atom_idx);
@@ -1358,22 +1524,23 @@ void Molecule::invalidateHCounters ()
 
 void Molecule::checkForConsistency (Molecule &mol)
 {
+   // Try to restore hydrogens in aromatic cycles first
+   mol.restoreAromaticHydrogens();
+
    int i;
    for (i = mol.vertexBegin(); i < mol.vertexEnd(); i = mol.vertexNext(i))
    {
       const Vertex &vertex = mol.getVertex(i);
 
-      if (mol.isPseudoAtom(i) || mol.isRSite(i))
+      if (mol.isPseudoAtom(i) || mol.isRSite(i) || mol.isTemplateAtom(i))
          continue;
 
-      // check that all explicit hydrogens are lone or 1-connected
-      if (mol.getAtomNumber(i) == ELEM_H && vertex.degree() > 1)
-         throw Element::Error("%d-connected hydrogen atom", vertex.degree());
+      // check that we are sure about valence
+      // (if the radical is not set, it is calculated from the valence anyway)
+      int val = mol.getAtomValence(i);
 
       // check that we are sure about implicit H counter and valence
       mol.getImplicitH(i);
-      mol.getAtomValence(i);
-      // (if the radical is not set, it is calculated from the valence anyway)
    }
 }
 
@@ -1409,12 +1576,31 @@ bool Molecule::shouldWriteHCountEx (Molecule &mol, int idx, int h_to_ignore)
    // so we write hydrogen counts on all aromatic atoms, except
    // uncharged C and O with no radicals, for which we can always tell
    // the number of hydrogens by the number of bonds.
+   //
+   // Also handle some degerate cases with invalid valences like C[c]1(C)ccccc1
+   // and store implicit hydrogens for unusual situations
    if (aromatic)
    {
       if (atom_number != ELEM_C && atom_number != ELEM_O)
          return true;
       if (charge != 0)
          return true;
+      int n_arom, min_conn;
+      mol.calcAromaticAtomConnectivity(idx, n_arom, min_conn);
+      if (atom_number == ELEM_C)
+      {
+         // Ensure that there can be double bond connected
+         // But do not save for O=c1ccocc1
+         if (min_conn > 3 && mol.getVertex(idx).degree() > 3)
+            return true; // Unusual aromatic Carbon atom
+      }
+      if (atom_number == ELEM_O)
+      {
+         // Ensure that there can be double bond connected
+         if (min_conn != 2)
+            return true; // Unusual aromatic Oxigen atom
+      }
+
    }
 
    // We also should write the H count if it exceeds the normal (lowest valence)
@@ -1452,4 +1638,79 @@ bool Molecule::shouldWriteHCountEx (Molecule &mol, int idx, int h_to_ignore)
 void Molecule::invalidateAtom (int index, int mask)
 {
    BaseMolecule::invalidateAtom(index, mask);
+}
+
+bool Molecule::restoreAromaticHydrogens (bool unambiguous_only)
+{
+   return MoleculeDearomatizer::restoreHydrogens(*this, unambiguous_only);
+}
+
+bool Molecule::standardize (const StandardizeOptions &options)
+{
+   updateEditRevision();
+   return MoleculeStandardizer::standardize(*this, options);
+}
+
+bool Molecule::ionize (float ph, float ph_toll, const IonizeOptions &options)
+{
+   updateEditRevision();
+   return MoleculeIonizer::ionize(*this, ph, ph_toll, options);
+}
+
+bool Molecule::isPossibleFischerProjection (const char *options)
+{
+   if (!BaseMolecule::hasCoord(*this) || BaseMolecule::hasZCoord(*this))
+      return false;
+
+   for (auto i : edges())
+   {
+      if (getBondDirection(i) > 0)
+         return false;
+   }
+
+   for (auto i : vertices())
+   {
+      if ((getAtomNumber(i) == ELEM_C) && (getVertex(i).degree() == 4))
+      {
+         const Vertex &v = getVertex(i);
+         Vec3f &central_atom = getAtomXyz(i);
+         Vec3f nei_coords[4];
+         int nei_count = 0;
+         for (auto j : v.neighbors())
+         {
+            nei_coords[nei_count++] = getAtomXyz(v.neiVertex(j));
+         }
+
+         float angle;
+         Vec3f bond1, bond2;
+         int ncount = 0;
+         for (auto j = 0; j < 4; j++)
+         {
+            if (j == 3)
+            {
+               bond1.diff(nei_coords[3], central_atom);
+               bond1.normalize();
+               bond2.diff(nei_coords[0], central_atom);
+               bond2.normalize();
+               Vec3f::angle(bond1, bond2, angle);
+            }
+            else
+            {
+               bond1.diff(nei_coords[j], central_atom);
+               bond1.normalize();
+               bond2.diff(nei_coords[j+1], central_atom);
+               bond2.normalize();
+               Vec3f::angle(bond1, bond2, angle);
+            }
+
+            if ((fabs(angle - PI/2.f) < EPSILON) || (fabs(angle - PI) < EPSILON))
+               ncount++;
+         }
+         if (ncount == 4)
+         {  
+            return true;
+         }
+      }
+   }
+   return false;
 }

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -38,8 +38,9 @@ public:
 
    int molfile_saving_mode; // MolfileSaver::MODE_***, default zero
    bool skip_date;
+   bool add_stereo_desc;
 
-   DEF_ERROR("Rxnfile saver");
+   DECL_ERROR;
 
 protected:
 

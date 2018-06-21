@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -25,9 +25,24 @@ using namespace indigo;
 
 // extern const char *bingo_version_string;
 
+namespace indigo 
+{
+   class MoleculeAutoLoader;
+   class ReactionAutoLoader;
+   class SmilesLoader;
+   class RSmilesLoader;
+}
+
 class BingoContext
 {
 public:
+
+   enum {
+      /*
+       * Default operation timeout = 60000 ms
+       */
+      DEFAULT_TIMEOUT = 60000
+   };
 
    explicit BingoContext (int id_);
    virtual ~BingoContext ();
@@ -42,9 +57,19 @@ public:
    int     fp_chunk_qwords;
 
    int     nthreads;
+   int     timeout;
 
    Nullable<bool> treat_x_as_pseudoatom;
    Nullable<bool> ignore_closing_bond_direction_mismatch;
+   Nullable<bool> ignore_stereocenter_errors;
+   Nullable<bool> stereochemistry_bidirectional_mode;
+   Nullable<bool> stereochemistry_detect_haworth_projection;
+   Nullable<bool> ignore_cistrans_errors;
+   Nullable<bool> allow_non_unique_dearomatization;
+   Nullable<bool> zero_unknown_aromatic_hydrogens;
+
+   // Throw exception when invalid structure is being added to the index
+   Nullable<bool> reject_invalid_structures;
 
    MoleculeFingerprintParameters fp_parameters;
 
@@ -52,17 +77,17 @@ public:
 
    RedBlackMap<int, float> relative_atomic_mass_map;
 
-   bool getTreatXAsPseudoatom ();
-   void setTreatXAsPseudoatom (bool state);
-
-   bool getIgnoreClosingBondDirectionMismatch ();
-   void setIgnoreClosingBondDirectionMismatch (bool state);
+   void setLoaderSettings (MoleculeAutoLoader &loader);
+   void setLoaderSettings (ReactionAutoLoader &loader);
+   void setLoaderSettings (SmilesLoader &loader);
+   void setLoaderSettings (RSmilesLoader &loader);
+   StereocentersOptions getStereocentersOptions();
 
    static void remove (int id);
 
    void reset ();
 
-   DEF_ERROR("bingo context");
+   DECL_ERROR;
 
    static BingoContext * get (int id);
    static BingoContext * existing (int id);

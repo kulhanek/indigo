@@ -1,12 +1,12 @@
 #ifndef _BINGO_POSTGRES_H__
-#define	_BINGO_POSTGRES_H__
+#define _BINGO_POSTGRES_H__
 
 #ifdef _WIN32
 #define strcasestr strstr
 #endif
 
-#define BINGO_METAPAGE	0                       /* metapage is always block 0 */
-#define BINGO_CONFIG_PAGE	1		/* configuration page is always block 1 */
+#define BINGO_METAPAGE 0                       /* metapage is always block 0 */
+#define BINGO_CONFIG_PAGE 1                     /* configuration page is always block 1 */
 #define BINGO_SECTION_OFFSET_PER_BLOCK 2000     /* 2000*sizeof(int) < 8KB*/
 #define BINGO_SECTION_OFFSET_BLOCKS_NUM 10
 #define BINGO_METABLOCKS_NUM 2 
@@ -24,6 +24,17 @@
 #define BINGO_INDEX_TYPE_MOLECULE 1
 #define BINGO_INDEX_TYPE_REACTION 2
 
+#if PG_VERSION_NUM / 100 == 904
+#define BINGO_FUNCTION_EXPORT(funcname) \
+	PGDLLEXPORT PG_FUNCTION_INFO_V1(funcname); 
+#else
+
+#define BINGO_FUNCTION_EXPORT(funcname) \
+	PG_FUNCTION_INFO_V1(funcname); \
+	PGDLLEXPORT Datum funcname(PG_FUNCTION_ARGS);
+
+#endif
+
 
 
 
@@ -35,5 +46,5 @@
 typedef void* PG_OBJECT;
 
 
-#endif	/* BINGO_POSTGRES_H */
+#endif /* BINGO_POSTGRES_H */
 

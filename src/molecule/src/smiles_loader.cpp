@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -26,7 +26,12 @@
 
 using namespace indigo;
 
+IMPL_ERROR(SmilesLoader, "SMILES loader");
+
+CP_DEF(SmilesLoader);
+
 SmilesLoader::SmilesLoader (Scanner &scanner) : _scanner(scanner),
+CP_INIT,
 TL_CP_GET(_atom_stack),
 TL_CP_GET(_cycles),
 TL_CP_GET(_pending_bonds_pool),
@@ -39,7 +44,7 @@ TL_CP_GET(_polymer_repetitions)
    ignorable_aam = 0;
    inside_rsmiles = false;
    ignore_closing_bond_direction_mismatch = false;
-   ignore_stereochemistry_errors = false;
+   ignore_cistrans_errors = false;
    _mol = 0;
    _qmol = 0;
    _bmol = 0;
@@ -91,7 +96,7 @@ void SmilesLoader::_calcStereocenters ()
 
          if (!MoleculeAlleneStereo::possibleCenter(*_bmol, i, left, right, subst, pure_h))
          {
-            if (!ignore_stereochemistry_errors)
+            if (!stereochemistry_options.ignore_errors)
                throw Error("chirality on atom %d makes no sense", i);
             continue;
          }
@@ -165,7 +170,7 @@ void SmilesLoader::_calcStereocenters ()
 
             if (counter >= 4)
             {
-               if (!ignore_stereochemistry_errors)
+               if (!stereochemistry_options.ignore_errors)
                   throw Error("too many bonds for chiral atom %d", i);
                break;
             }
@@ -179,7 +184,7 @@ void SmilesLoader::_calcStereocenters ()
 
          if (counter < 3)
          {
-            if (!ignore_stereochemistry_errors)
+            if (!stereochemistry_options.ignore_errors)
                throw Error("only %d bonds for chiral atom %d", counter, i);
             continue;
          }
@@ -202,7 +207,7 @@ void SmilesLoader::_calcStereocenters ()
          {
             if (counter != 4)
             {
-               if (!ignore_stereochemistry_errors)
+               if (!stereochemistry_options.ignore_errors)
                   throw Error("implicit hydrogen not allowed with %d neighbor atoms", counter - 1);
                continue;
             }
@@ -224,7 +229,7 @@ void SmilesLoader::_calcStereocenters ()
 
          if (!stereocenters.isPossibleStereocenter(i))
          {
-            if (!ignore_stereochemistry_errors)
+            if (!stereochemistry_options.ignore_errors)
                throw Error("chirality not possible on atom #%d", i);
             continue;
          }
@@ -260,6 +265,7 @@ void SmilesLoader::_calcCisTrans ()
 void SmilesLoader::_readOtherStuff ()
 {
    MoleculeStereocenters &stereocenters = _bmol->stereocenters;
+   MoleculeCisTrans &cis_trans = _bmol->cis_trans;
 
    QS_DEF(Array<int>, to_remove);
 
@@ -292,7 +298,37 @@ void SmilesLoader::_readOtherStuff ()
             int idx = _scanner.readUnsigned();
 
             if (!skip)
-               stereocenters.add(idx, MoleculeStereocenters::ATOM_ANY, 0, false);
+            {
+               // This either bond can mark stereocenter or cis-trans double bond
+               // For example CC=CN |w:1.0|
+               const Vertex &v = _bmol->getVertex(idx);
+               bool found = false;
+               for (int nei : v.neighbors())
+               {
+                  int edge_idx = v.neiEdge(nei);
+                  if (_bmol->getBondOrder(edge_idx) == BOND_DOUBLE)
+                  {
+                     cis_trans.ignore(edge_idx);
+                     found = true;
+                  }
+               }
+
+               if (!found)
+               {
+                  if (!stereocenters.isPossibleStereocenter(idx))
+                  {
+                     if (!stereochemistry_options.ignore_errors)
+                        throw Error("chirality not possible on atom #%d", idx);
+                  }
+                  else
+                  {
+                     // Check if the stereocenter has already been marked as any
+                     // For example [H]C1(O)c2ccnn2[C@@H](O)c2ccnn12 |r,w:1.0,1.1|
+                     if (stereocenters.getType(idx) != MoleculeStereocenters::ATOM_ANY)
+                       stereocenters.add(idx, MoleculeStereocenters::ATOM_ANY, 0, false);
+                  }
+               }
+            }
 
             if (_scanner.lookNext() == '.') // skip the bond index
             {
@@ -315,7 +351,7 @@ void SmilesLoader::_readOtherStuff ()
 
             if (stereocenters.exists(idx))
                stereocenters.setType(idx, MoleculeStereocenters::ATOM_ABS, 0);
-            else if (!ignore_stereochemistry_errors)
+            else if (!stereochemistry_options.ignore_errors)
                throw Error("atom %d is not a stereocenter", idx);
 
             if (_scanner.lookNext() == ',')
@@ -335,7 +371,7 @@ void SmilesLoader::_readOtherStuff ()
 
             if (stereocenters.exists(idx))
                stereocenters.setType(idx, MoleculeStereocenters::ATOM_OR, groupno);
-            else if (!ignore_stereochemistry_errors)
+            else if (!stereochemistry_options.ignore_errors)
                throw Error("atom %d is not a stereocenter", idx);
 
             if (_scanner.lookNext() == ',')
@@ -355,7 +391,7 @@ void SmilesLoader::_readOtherStuff ()
 
             if (stereocenters.exists(idx))
                stereocenters.setType(idx, MoleculeStereocenters::ATOM_AND, groupno);
-            else if (!ignore_stereochemistry_errors)
+            else if (!stereochemistry_options.ignore_errors)
                throw Error("atom %d is not a stereocenter", idx);
 
             if (_scanner.lookNext() == ',')
@@ -368,7 +404,7 @@ void SmilesLoader::_readOtherStuff ()
          int radical;
 
          if (rad == 1)
-            radical = RADICAL_DOUPLET;
+            radical = RADICAL_DOUBLET;
          else if (rad == 3)
             radical = RADICAL_SINGLET;
          else if (rad == 4)
@@ -466,29 +502,35 @@ void SmilesLoader::_readOtherStuff ()
          {
             int idx = _scanner.readUnsigned();
 
-            _bmol->cis_trans.restoreSubstituents(_bonds[idx].index);
-            const int *subst = _bmol->cis_trans.getSubstituents(_bonds[idx].index);
-            int parity = ((c == 'c') ? MoleculeCisTrans::CIS : MoleculeCisTrans::TRANS);
+            bool skip = false;
+            if (ignore_cistrans_errors && !MoleculeCisTrans::isGeomStereoBond(*_bmol, _bonds[idx].index, nullptr, false))
+               skip = true;
 
-            /* CXSmiles doc says:
-               the double bond has the representation a1-a2=a3-a4, where
-               a1 is the smallest atom index of the generated smiles connected to a2
-               a2 is the double bond smaller atom index in the generated smiles
-               a3 is the double bond larger atom index in the generated smiles
-               a4 is the smallest atom index of the generated smiles connected to a3
+            if (!skip)
+            {
+               _bmol->cis_trans.restoreSubstituents(_bonds[idx].index);
+               const int *subst = _bmol->cis_trans.getSubstituents(_bonds[idx].index);
+               int parity = ((c == 'c') ? MoleculeCisTrans::CIS : MoleculeCisTrans::TRANS);
 
-             * We need to know if the calculated substituents' indices are not "smallest"
-             * (i.e. they have other substituent with smaller index on the same side).
-             * In that case, we invert the parity.
-             */
+               /* CXSmiles doc says:
+                  the double bond has the representation a1-a2=a3-a4, where
+                  a1 is the smallest atom index of the generated smiles connected to a2
+                  a2 is the double bond smaller atom index in the generated smiles
+                  a3 is the double bond larger atom index in the generated smiles
+                  a4 is the smallest atom index of the generated smiles connected to a3
 
-            if (subst[1] != -1 && subst[1] < subst[0])
-               parity = 3 - parity;
-            if (subst[3] != -1 && subst[3] < subst[2])
-               parity = 3 - parity;
+                * We need to know if the calculated substituents' indices are not "smallest"
+                * (i.e. they have other substituent with smaller index on the same side).
+                * In that case, we invert the parity.
+                */
 
-            _bmol->cis_trans.setParity(_bonds[idx].index, parity);
+               if (subst[1] != -1 && subst[1] < subst[0])
+                  parity = 3 - parity;
+               if (subst[3] != -1 && subst[3] < subst[2])
+                  parity = 3 - parity;
 
+               _bmol->cis_trans.setParity(_bonds[idx].index, parity);
+            }
             if (_scanner.lookNext() == ',')
                _scanner.skip(1);
          }
@@ -556,6 +598,17 @@ void SmilesLoader::_readOtherStuff ()
 
             if (_scanner.lookNext() == ',')
                _scanner.skip(1);
+         }
+      }
+      else if (c == 'r')
+      {
+         // All stereocenters are relative instead of abs
+         MoleculeStereocenters &s = _bmol->stereocenters;
+         for (int i = s.begin(); i != s.end(); i = s.next(i))
+         {
+            int atom = s.getAtomIndex(i);
+            if (s.getType(atom) == MoleculeStereocenters::ATOM_ABS)
+               s.setType(atom, MoleculeStereocenters::ATOM_AND, 1);
          }
       }
    }
@@ -770,7 +823,18 @@ void SmilesLoader::_parseMolecule ()
             
             for (i = 0; i < bond_str.size(); i++)
                if (bond_str[i] == '/' || bond_str[i] == '\\')
-                  bond_str[i] = '-';
+               {
+                  // Aromatic bonds can be a part of cis-trans configuration
+                  // For example in Cn1c2ccccc2c(-c2ccccc2)n/c(=N\O)c1=O or O\N=c1/c(=O)c2ccccc2c(=O)/c/1=N\O
+                  if (_atoms[bond->beg].aromatic && bond_str.size() == 1)
+                  {
+                     // Erase bond type info
+                     bond_str[i] = '?';
+                     bond->type = -1; // single of aromatic
+                  }
+                  else
+                     bond_str[i] = '-';
+               }
          }
 
          if (bond_str.size() > 0)
@@ -802,7 +866,8 @@ void SmilesLoader::_parseMolecule ()
                // closing some previous pending cycle bond, like the last '1' in C=1C=CC=CC=1
                else if (number >= 0 && number < _cycles.size() && _cycles[number].pending_bond >= 0)
                {
-                  _BondDesc &pending_bond = _bonds[_cycles[number].pending_bond];
+                  int pending_bond_idx = _cycles[number].pending_bond;
+                  _BondDesc &pending_bond = _bonds[pending_bond_idx];
 
                   // transfer direction from closing bond to pending bond
                   if (bond->dir > 0)
@@ -842,8 +907,16 @@ void SmilesLoader::_parseMolecule ()
                   _atoms[pending_bond.end].neighbors.add(pending_bond.beg);
                   _atoms[pending_bond.beg].closure(number, pending_bond.end);
 
-                  // forget the closing bond
-                  _bonds.pop();
+                  // forget the closing bond but move its index here
+                  // Bond order should correspons to atoms order
+                  // Bond order for the following two molecules should be the same
+                  // because later we add cis constraint:
+                  //    CCSc1nnc2c(OC=Nc3ccccc-23)n1 |c:9|
+                  //    CCSc1nnc-2c(OC=Nc3ccccc-23)n1 |c:9|
+                  // Without this shift the 9th bond in the second structure is not double
+                  _bonds.top() = pending_bond;
+                  _bonds.remove(pending_bond_idx);
+
                   _cycles[number].clear();
                   continue;
                }
@@ -919,6 +992,7 @@ void SmilesLoader::_parseMolecule ()
       if (_qmol != 0)
       {
          _qmol->addAtom(qatom.release());
+
          if (bond != 0)
             bond->index = _qmol->addBond(bond->beg, bond->end, qbond.release());
       }
@@ -1084,7 +1158,10 @@ void SmilesLoader::_loadParsedMolecule ()
       _markAromaticBonds();
 
    if (_mol != 0)
+   {
+      _addExplicitHForStereo();
       _setRadicalsAndHCounts();
+   }
 
    if (smarts_mode)
       // Forbid matching SMARTS atoms to hydrogens
@@ -1098,6 +1175,11 @@ void SmilesLoader::_loadParsedMolecule ()
                _qmol->resetAtom(i, new QueryMolecule::Atom(QueryMolecule::ATOM_RSITE, 0));
             _bmol->allowRGroupOnRSite(i, _atoms[i].aam);
          }
+
+   if (_qmol != 0)
+      // Replace implicit H with explicit one at required stereocenter
+      // or add required number of "any atom" ligands
+      _addLigandsForStereo();
 
    _calcStereocenters();
    _calcCisTrans();
@@ -1242,8 +1324,10 @@ void SmilesLoader::_setRadicalsAndHCounts ()
          _mol->setImplicitH(idx, _atoms[i].hydrogens);
       else if (_atoms[i].brackets) // no hydrogens in brackets?
          _mol->setImplicitH(idx, 0); // no implicit hydrogens on atom then
-      else if (_atoms[i].aromatic)
+      else if (_atoms[i].aromatic && _mol->getAtomAromaticity(i) == ATOM_AROMATIC)
       {
+         // Additional check for _mol->getAtomAromaticity(i) is required because 
+         // a cycle can be non-aromatic while atom letters are small
          if (_atoms[i].label == ELEM_C)
          {
             // here we are basing on the fact that
@@ -1256,11 +1340,10 @@ void SmilesLoader::_setRadicalsAndHCounts ()
                _mol->setImplicitH(idx, 0);
          }
          else
-            // it is probably not fair to set it to zero at
-            // this point, but other choices seem to be worse:
-            //   1) raise an exception (too ugly)
-            //   2) try to de-aromatize the molecule to know the implicit hydrogens (too complicated)
-            _mol->setImplicitH(idx, 0);
+         {
+            // Leave the number of hydrogens as unspecified
+            // Dearomatization algorithm can find any suitable configuration
+         }
       }
    }
 }
@@ -1291,25 +1374,144 @@ void SmilesLoader::_forbidHydrogens ()
    }
 }
 
+void SmilesLoader::_addExplicitHForStereo ()
+{
+   for (int i = 0; i < _atoms.size(); i++)
+   {
+      if ((_atoms[i].chirality > 0) && (_bmol->getVertex(i).degree() == 2) && (_atoms[i].hydrogens == 1))
+      {
+         _AtomDesc &atom = _atoms.push(_neipool);
+         _BondDesc *bond = &_bonds.push();
+  
+         atom.label = ELEM_H;
+         int exp_h_idx = _mol->addAtom(atom.label);
+
+         bond->beg = i;
+         bond->end = _atoms.size() - 1;
+         bond->type = BOND_SINGLE;
+         bond->index = _mol->addBond_Silent(bond->beg, bond->end, bond->type);
+
+         _atoms[i].neighbors.add(exp_h_idx);
+         _atoms[exp_h_idx].neighbors.add(i);
+         _atoms[exp_h_idx].parent = i;
+
+         _atoms[i].hydrogens = 0;
+      }
+   }
+}
+
+void SmilesLoader::_addLigandsForStereo ()
+{
+   bool add_explicit_h = false;
+   int num_ligands = 0;
+
+   for (int i = 0; i < _atoms.size(); i++)
+   {
+      if ((_atoms[i].chirality > 0) && (_bmol->getVertex(i).degree() < 3) && !_isAlleneLike(i))
+      {
+         if (_atoms[i].hydrogens == 1)
+         {
+            add_explicit_h = true;
+            num_ligands = 3 - _bmol->getVertex(i).degree() - _atoms[i].hydrogens;
+         }
+         else
+            num_ligands = 3 - _bmol->getVertex(i).degree();
+
+         for (int j = 0; j < num_ligands; j++)
+         {
+            _AtomDesc &atom = _atoms.push(_neipool);
+            _BondDesc *bond = &_bonds.push();
+            AutoPtr<QueryMolecule::Atom> qatom;
+
+            if (add_explicit_h)
+               qatom = QueryMolecule::Atom::nicht(new QueryMolecule::Atom(QueryMolecule::ATOM_NUMBER, ELEM_H));
+            else
+               qatom = QueryMolecule::Atom::oder(QueryMolecule::Atom::nicht
+                                            (new QueryMolecule::Atom(QueryMolecule::ATOM_NUMBER, ELEM_H)),
+                                             new QueryMolecule::Atom(QueryMolecule::ATOM_NUMBER, ELEM_H));
+
+            AutoPtr<QueryMolecule::Bond> qbond(new QueryMolecule::Bond(QueryMolecule::BOND_ORDER, BOND_SINGLE));
+
+            atom.star_atom = true;
+            int any_atom_idx = _qmol->addAtom(qatom.release());
+
+            bond->beg = i;
+            bond->end = _atoms.size() - 1;
+            bond->type = BOND_SINGLE;
+            bond->dir = 0;
+            bond->topology = 0;
+            bond->index = _qmol->addBond(i, any_atom_idx, qbond.release());
+
+            _atoms[i].neighbors.add(any_atom_idx);
+            _atoms[any_atom_idx].neighbors.add(i);
+            _atoms[any_atom_idx].parent = i;
+         }
+
+         if (_atoms[i].hydrogens == 1)
+         {
+            _AtomDesc &atom = _atoms.push(_neipool);
+            _BondDesc *bond = &_bonds.push();
+   
+            AutoPtr<QueryMolecule::Atom> qatom(new QueryMolecule::Atom(QueryMolecule::ATOM_NUMBER, ELEM_H));
+            AutoPtr<QueryMolecule::Bond> qbond(new QueryMolecule::Bond(QueryMolecule::BOND_ORDER, BOND_SINGLE));
+
+            atom.label = ELEM_H;
+            int exp_h_idx = _qmol->addAtom(qatom.release());
+
+            bond->beg = i;
+            bond->end = _atoms.size() - 1;
+            bond->type = BOND_SINGLE;
+            bond->dir = 0;
+            bond->topology = 0;
+            bond->index = _qmol->addBond(i, exp_h_idx, qbond.release());
+
+            _atoms[i].neighbors.add(exp_h_idx);
+            _atoms[exp_h_idx].neighbors.add(i);
+            _atoms[exp_h_idx].parent = i;
+
+            _atoms[i].hydrogens = 0;
+            _qmol->getAtom(i).removeConstraints(QueryMolecule::ATOM_TOTAL_H);
+         }
+      }
+   }
+}
+
+bool SmilesLoader::_isAlleneLike (int i)
+{
+   if (_bmol->getVertex(i).degree() == 2)
+   {
+      int subst[4];
+      int subst2[4];
+      int left, right;
+      bool pure_h[4];
+
+      if (MoleculeAlleneStereo::possibleCenter(*_bmol, i, left, right, subst, pure_h))
+         return true;
+   }
+   return false;   
+}
+
 void SmilesLoader::_handlePolymerRepetition (int i)
 {
    int j, start = -1, end = -1;
    int start_bond = -1, end_bond = -1;
-   BaseMolecule::SGroup *sgroup;
+   SGroup *sgroup;
 
    // no repetitions counter => polymer
    if (_polymer_repetitions[i] == 0)
    {
-      BaseMolecule::RepeatingUnit &ru = _bmol->repeating_units[_bmol->repeating_units.add()];
-      ru.connectivity = BaseMolecule::RepeatingUnit::HEAD_TO_TAIL;
-      sgroup = &ru;
+      int idx = _bmol->sgroups.addSGroup(SGroup::SG_TYPE_SRU);
+      sgroup = &_bmol->sgroups.getSGroup(idx);
+      RepeatingUnit *ru = (RepeatingUnit *)sgroup;
+      ru->connectivity = RepeatingUnit::HEAD_TO_TAIL;
    }
    // repetitions counter present => multiple group
    else
    {
-      BaseMolecule::MultipleGroup &mg = _bmol->multiple_groups[_bmol->multiple_groups.add()];
-      mg.multiplier = _polymer_repetitions[i];
-      sgroup = &mg;
+      int idx = _bmol->sgroups.addSGroup(SGroup::SG_TYPE_MUL);
+      sgroup = &_bmol->sgroups.getSGroup(idx);
+      MultipleGroup *mg = (MultipleGroup *)sgroup;
+      mg->multiplier = _polymer_repetitions[i];
    }
    for (j = 0; j < _atoms.size(); j++)
    {
@@ -1317,7 +1519,7 @@ void SmilesLoader::_handlePolymerRepetition (int i)
          continue;
       sgroup->atoms.push(j);
       if (_polymer_repetitions[i] > 0)
-         ((BaseMolecule::MultipleGroup *)sgroup)->parent_atoms.push(j);
+         ((MultipleGroup *)sgroup)->parent_atoms.push(j);
       if (_atoms[j].starts_polymer)
          start = j;
       if (_atoms[j].ends_polymer)
@@ -1374,8 +1576,8 @@ void SmilesLoader::_handlePolymerRepetition (int i)
       AutoPtr<BaseMolecule> rep(_bmol->neu());
 
       rep->makeSubmolecule(*_bmol, sgroup->atoms, &mapping, 0);
-      rep->repeating_units.clear();
-      rep->multiple_groups.clear();
+      rep->sgroups.clear(SGroup::SG_TYPE_SRU);
+      rep->sgroups.clear(SGroup::SG_TYPE_MUL);
       int rep_start = mapping[start];
       int rep_end = mapping[end];
 
@@ -1802,9 +2004,6 @@ void SmilesLoader::_readAtom (Array<char> &atom_str, bool first_in_brackets,
          if (scanner.readChar() != '(')
             throw Error("'$' must be followed by '('");
 
-         if (!smarts_mode)
-            throw Error("'$' fragments are allowed only in SMARTS queries");
-
          QS_DEF(Array<char>, subexp);
 
          subexp.clear();
@@ -1973,8 +2172,6 @@ void SmilesLoader::_readAtom (Array<char> &atom_str, bool first_in_brackets,
       }
       else if (next == '#')
       {
-         if (!smarts_mode)
-            throw Error("'#' is allowed only within SMARTS queries");
          scanner.skip(1);
          element = scanner.readUnsigned();
       }
@@ -2092,13 +2289,21 @@ void SmilesLoader::_readAtom (Array<char> &atom_str, bool first_in_brackets,
             subatom.reset(new QueryMolecule::Atom(QueryMolecule::ATOM_AROMATICITY, ATOM_AROMATIC));
          }
       }
-      else if (next == 's') // can be [s] or [se]
+      else if (next == 's') // can be [s], [se] or [si]
       {
          scanner.skip(1);
          if (scanner.lookNext() == 'e')
          {
             scanner.skip(1);
             element = ELEM_Se;
+            aromatic = ATOM_AROMATIC;
+         }
+         else if (scanner.lookNext() == 'i')
+         {
+            // Aromatic Si cannot occure in SMILES by specification, but 
+            // Cactvs produces it
+            scanner.skip(1);
+            element = ELEM_Si;
             aromatic = ATOM_AROMATIC;
          }
          else
@@ -2178,12 +2383,14 @@ void SmilesLoader::_readAtom (Array<char> &atom_str, bool first_in_brackets,
 
       if (element > 0)
       {
-         if (element_assigned)
-            throw Error("two element labels for one atom");
          if (qatom.get() != 0)
             subatom.reset(new QueryMolecule::Atom(QueryMolecule::ATOM_NUMBER, element));
          else
+         {
+            if (element_assigned)
+               throw Error("two element labels for one atom");
             atom.label = element;
+         }
          element_assigned = true;
       }
 

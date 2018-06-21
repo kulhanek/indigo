@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -27,6 +27,7 @@ namespace indigo {
 
 class BaseMolecule;
 class Filter;
+class StereocentersOptions;
 
 class DLLEXPORT MoleculeStereocenters
 {
@@ -44,9 +45,9 @@ public:
 
    void clear ();
 
-   void buildFromBonds (bool ignore_errors, int *sensible_bonds_out);
+   void buildFromBonds (const StereocentersOptions &options, int *sensible_bonds_out);
 
-   void buildFrom3dCoordinates ( void );
+   void buildFrom3dCoordinates (void);
 
    void markBonds ();
    void markBond  (int atom_idx);
@@ -69,9 +70,11 @@ public:
 
    int getType  (int idx) const;
    int getGroup (int idx) const;
+   void setGroup (int idx, int group);
    const int * getPyramid (int idx) const;
    int * getPyramid (int idx);
    void setType (int idx, int type, int group);
+   void setType (int idx, int type);
    void invertPyramid (int idx);
 
    bool sameGroup (int idx1, int idx2);
@@ -82,6 +85,7 @@ public:
    void getOrGroup   (int number, Array<int> &indices);
    void getAndGroup  (int number, Array<int> &indices);
 
+   bool haveAbs ();
    bool haveAllAbs ();
    bool haveAllAbsAny ();
    bool haveAllAndAny ();
@@ -109,13 +113,15 @@ public:
 
    static bool isAutomorphism (BaseMolecule &mol, const Array<int> &mapping, const Filter *filter = NULL);
 
-   DEF_ERROR("stereocenters");
+   DECL_ERROR;
 
    static void getPyramidMapping (const MoleculeStereocenters &query,
                                   const MoleculeStereocenters &target,
                                   int query_atom, const int *mapping, int *mapping_out, bool reset_h_isotopes);
 
    bool isPossibleStereocenter (int atom_idx, bool *possible_implicit_h = 0, bool *possible_lone_pair = 0);
+
+   static void rotatePyramid (int *pyramid);
 
 protected:
 
@@ -152,17 +158,18 @@ protected:
    static int _xyzzy (const Vec3f &v1, const Vec3f &v2, const Vec3f &u);
    static int _onPlane (const Vec3f &v1, const Vec3f &v2, const Vec3f &v3, const Vec3f &v4);
 
-   void _buildOneCenter (int atom_idx, int *sensible_bonds_out);
+   bool _buildOneCenter (int atom_idx, int *sensible_bonds_out, 
+      bool bidirectional_mode, bool bidirectional_either_mode, const Array<bool> &bond_ignore);
 
    void _getGroups (int type, Array<int> &numbers);
    void _getGroup  (int type, int number, Array<int> &indices);
    void _restorePyramid (int idx, int pyramid[4], int invert_pyramid);
 
-   static void _rotatePyramid (int *pyramid);
-
    static void _convertAtomToImplicitHydrogen (int pyramid[4], int atom_to_remove);
 
    void _removeBondDir (int atom_from, int atom_to);
+
+   int _getDirection (BaseMolecule &mol, int atom_from, int atom_to, bool bidirectional_mode);
 
    BaseMolecule & _getMolecule() const;
 

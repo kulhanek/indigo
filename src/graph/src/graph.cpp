@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -24,10 +24,15 @@
 
 using namespace indigo;
 
+NeighborsAuto Vertex::neighbors() const
+{
+   return NeighborsAuto(*this);
+}
+
 int Vertex::findNeiVertex (int idx) const
 {
-   for (int i = neighbors.begin(); i < neighbors.end(); i = neighbors.next(i))
-      if (neighbors[i].v == idx)
+   for (int i = neighbors_list.begin(); i < neighbors_list.end(); i = neighbors_list.next(i))
+      if (neighbors_list[i].v == idx)
          return i;
 
    return -1;
@@ -35,18 +40,21 @@ int Vertex::findNeiVertex (int idx) const
 
 int Vertex::findNeiEdge (int idx) const
 {
-   for (int i = neighbors.begin(); i < neighbors.end(); i = neighbors.next(i))
-      if (neighbors[i].e == idx)
+   for (int i = neighbors_list.begin(); i < neighbors_list.end(); i = neighbors_list.next(i))
+      if (neighbors_list[i].e == idx)
          return i;
 
    return -1;
 }
+
+IMPL_ERROR(Graph, "graph");
 
 Graph::Graph ()
 {
    _vertices = new ObjPool<Vertex>();
    _neighbors_pool = new Pool<List<VertexEdge>::Elem>();
    _sssr_pool = 0;
+   _components_valid = false;
 }
 
 Graph::~Graph ()
@@ -92,6 +100,16 @@ bool Graph::hasVertex(int idx) const
    return _vertices->hasElement(idx);
 }
 
+int Graph::getEdgeEnd (int beg, int edge) const
+{
+   const Edge &e = getEdge(edge);
+   if (e.beg == beg)
+      return e.end;
+   if (e.end == beg)
+      return e.beg;
+   return -1;
+}
+
 int Graph::addEdge (int beg, int end)
 {
    if (beg == end)
@@ -105,11 +123,11 @@ int Graph::addEdge (int beg, int end)
    Vertex &vbeg = _vertices->at(beg);
    Vertex &vend = _vertices->at(end);
 
-   int ve1_idx = vbeg.neighbors.add();
-   int ve2_idx = vend.neighbors.add();
+   int ve1_idx = vbeg.neighbors_list.add();
+   int ve2_idx = vend.neighbors_list.add();
 
-   VertexEdge &ve1 = vbeg.neighbors[ve1_idx];
-   VertexEdge &ve2 = vend.neighbors[ve2_idx];
+   VertexEdge &ve1 = vbeg.neighbors_list[ve1_idx];
+   VertexEdge &ve2 = vend.neighbors_list[ve2_idx];
 
    ve1.v = end;
    ve2.v = beg;
@@ -142,8 +160,8 @@ void Graph::removeEdge (int idx)
 
    _edges.remove(idx);
 
-   beg.neighbors.remove(beg.findNeiEdge(idx));
-   end.neighbors.remove(end.findNeiEdge(idx));
+   beg.neighbors_list.remove(beg.findNeiEdge(idx));
+   end.neighbors_list.remove(end.findNeiEdge(idx));
 
    _topology_valid = false;
    _sssr_valid = false;
@@ -153,7 +171,7 @@ void Graph::removeEdge (int idx)
 void Graph::removeAllEdges ()
 {
    for (int i = _vertices->begin(); i != _vertices->end(); i = _vertices->next(i))
-      _vertices->at(i).neighbors.clear();
+      _vertices->at(i).neighbors_list.clear();
 
    _edges.clear();
    _topology_valid = false;
@@ -195,44 +213,9 @@ const Edge & Graph::getEdge (int idx) const
    return _edges[idx];
 }
 
-bool Graph::isConnected (const Graph &graph)
+bool Graph::isConnected (Graph &graph)
 {
-   if (graph.vertexCount() < 2)
-      return true;
-
-   QS_DEF(Array<int>, queue);
-   QS_DEF(Array<int>, states);
-
-   queue.clear_resize(graph.vertexCount());
-   states.clear_resize(graph.vertexEnd());
-
-   int top = 1, bottom = 0;
-
-   states.zerofill();
-   queue[0] = graph.vertexBegin();
-   states[queue[0]] = 1;
-
-   // BFS
-   while (top != bottom)
-   {
-      const Vertex &vertex = graph.getVertex(queue[bottom]);
-
-      states[queue[bottom]] = 2;
-
-      for (int i = vertex.neiBegin(); i != vertex.neiEnd(); i = vertex.neiNext(i))
-      {
-         int other = vertex.neiVertex(i);
-
-         if (states[other] == 0)
-         {
-            queue[top++] = other;
-            states[other] = 1;
-         }
-      }
-      bottom++;
-   }
-
-   return bottom == graph.vertexCount();
+   return graph.countComponents() == 1;
 }
 
 struct BfsState
@@ -302,6 +285,16 @@ bool Graph::findPath (int from, int where, Array<int> &path_out) const
    return false;
 }
 
+VerticesAuto Graph::vertices ()
+{
+   return VerticesAuto(*this);
+}
+
+EdgesAuto Graph::edges ()
+{
+   return EdgesAuto(*this);
+}
+
 void Graph::clear ()
 {
    _vertices->clear();
@@ -324,7 +317,7 @@ bool Graph::isChain_AssumingConnected (const Graph &graph)
    return true;
 }
 
-bool Graph::isTree (const Graph &graph)
+bool Graph::isTree (Graph &graph)
 {
    if (!Graph::isConnected(graph))
       return false;
@@ -370,16 +363,16 @@ void Graph::filterEdges (const Graph &graph, const int *filter, int filter_type,
 }
 
 void Graph::_mergeWithSubgraph (const Graph &other, const Array<int> &vertices, const Array<int> *edges,
-                                Array<int> *mapping, Array<int> *edge_mapping)
+                                Array<int> *vertex_mapping, Array<int> *edge_mapping)
 {
    QS_DEF(Array<int>, tmp_mapping);
    int i;
 
-   if (mapping == 0)
-      mapping = &tmp_mapping;
+   if (vertex_mapping == 0)
+      vertex_mapping = &tmp_mapping;
 
-   mapping->clear_resize(other.vertexEnd());
-   mapping->fffill();
+   vertex_mapping->clear_resize(other.vertexEnd());
+   vertex_mapping->fffill();
 
    if (edge_mapping != 0)
    {
@@ -391,10 +384,10 @@ void Graph::_mergeWithSubgraph (const Graph &other, const Array<int> &vertices, 
    {
       int idx = vertices[i];
 
-      if (mapping->at(idx) != -1)
+      if (vertex_mapping->at(idx) != -1)
          throw Error("makeSubgraph(): repeated vertex #%d", idx);
 
-      mapping->at(idx) = addVertex();
+      vertex_mapping->at(idx) = addVertex();
    }
 
    if (edges != 0)
@@ -403,8 +396,8 @@ void Graph::_mergeWithSubgraph (const Graph &other, const Array<int> &vertices, 
       {
          const Edge &edge = other.getEdge(edges->at(i));
 
-         int beg = mapping->at(edge.beg);
-         int end = mapping->at(edge.end);
+         int beg = vertex_mapping->at(edge.beg);
+         int end = vertex_mapping->at(edge.end);
 
          if (beg == -1 || end == -1)
             throw Error("_mergeWithSubgraph: edge %d maps to (%d, %d)", edges->at(i), beg, end);
@@ -413,13 +406,14 @@ void Graph::_mergeWithSubgraph (const Graph &other, const Array<int> &vertices, 
 
          if (edge_mapping != 0)
             edge_mapping->at(edges->at(i)) = idx;
+
       }
    }
    else for (i = other.edgeBegin(); i < other.edgeEnd(); i = other.edgeNext(i))
    {
       const Edge &edge = other.getEdge(i);
-      int beg = mapping->at(edge.beg);
-      int end = mapping->at(edge.end);
+      int beg = vertex_mapping->at(edge.beg);
+      int end = vertex_mapping->at(edge.end);
 
       if (beg != -1 && end != -1)
       {
@@ -460,10 +454,16 @@ void Graph::mergeWith (const Graph &other, Array<int> *mapping)
    _mergeWithSubgraph(other, vertices, 0, mapping, 0);
 }
 
-void Graph::makeSubgraph (const Graph &other, const Array<int> &vertices, Array<int> *mapping)
+void Graph::makeSubgraph (const Graph &other, const Array<int> &vertices, Array<int> *vertex_mapping)
 {
    clear();
-   _mergeWithSubgraph(other, vertices, 0, mapping, 0);
+   _mergeWithSubgraph(other, vertices, 0, vertex_mapping, 0);
+}
+
+void Graph::makeSubgraph (const Graph &other, const Array<int> &vertices, Array<int> *vertex_mapping, const Array<int> *edges, Array<int> *edge_mapping)
+{
+   clear();
+   _mergeWithSubgraph(other, vertices, edges, vertex_mapping, edge_mapping);
 }
 
 void Graph::makeSubgraph (const Graph &other, const Filter &filter,
@@ -608,17 +608,22 @@ int Graph::vertexSmallestRingSize (int idx)
    return _v_smallest_ring_size[idx];
 }
 
-void Graph::_calculateSSSR ()
+int Graph::edgeSmallestRingSize (int idx)
 {
-   CycleBasis basis;
-   int i, j;
+   if (!_sssr_valid)
+      _calculateSSSR();
 
-   basis.create(*this);
+   return _e_smallest_ring_size[idx];
+}
 
+void Graph::_calculateSSSRInit ()
+{
    _v_smallest_ring_size.clear_resize(vertexEnd());
+   _e_smallest_ring_size.clear_resize(edgeEnd());
    _v_sssr_count.clear_resize(vertexEnd());
 
    _v_smallest_ring_size.fffill();
+   _e_smallest_ring_size.fffill();
    _v_sssr_count.zerofill();
 
    if (_sssr_pool == 0)
@@ -626,35 +631,23 @@ void Graph::_calculateSSSR ()
 
    _sssr_vertices.clear();
    _sssr_edges.clear();
+}
 
-   for (i = 0; i < basis.getCyclesCount(); i++)
+
+void Graph::_calculateSSSRByCycleBasis (CycleBasis &basis)
+{
+   _calculateSSSRInit();
+
+   for (int i = 0; i < basis.getCyclesCount(); i++)
    {
       const Array<int> &cycle = basis.getCycle(i);
 
       List<int> &vertices = _sssr_vertices.push(*_sssr_pool);
       List<int> &edges = _sssr_edges.push(*_sssr_pool);
 
-      int prev_beg = -1;
-      int prev_end = -1;
+      _calculateSSSRAddEdgesAndVertices(cycle, edges, vertices);
 
-      for (j = 0; j < cycle.size(); j++)
-      {
-         const Edge &edge = getEdge(cycle[j]);
-
-         edges.add(cycle[j]);
-         
-         if (j != cycle.size() - 1)
-         {
-            if (edge.beg != prev_beg && edge.beg != prev_end)
-               vertices.add(edge.beg);
-            if (edge.end != prev_beg && edge.end != prev_end)
-               vertices.add(edge.end);
-         }
-         prev_beg = edge.beg;
-         prev_end = edge.end;
-      }
-
-      for (j = vertices.begin(); j != vertices.end(); j = vertices.next(j))
+      for (int j = vertices.begin(); j != vertices.end(); j = vertices.next(j))
       {
          int idx = vertices[j];
 
@@ -663,13 +656,33 @@ void Graph::_calculateSSSR ()
          
          _v_sssr_count[idx]++;
       }
+
+      for (int j = edges.begin(); j != edges.end(); j = edges.next(j))
+      {
+         int idx = edges[j];
+
+         if (_e_smallest_ring_size[idx] == -1 || _e_smallest_ring_size[idx] > cycle.size())
+            _e_smallest_ring_size[idx] = cycle.size();
+      }
    }
 
-   for (i = 0; i < _v_smallest_ring_size.size(); i++)
+   for (int i = 0; i < _v_smallest_ring_size.size(); i++)
       if (_v_smallest_ring_size[i] == -1)
          _v_smallest_ring_size[i] = 0;
    
+   for (int i = 0; i < _e_smallest_ring_size.size(); i++)
+      if (_e_smallest_ring_size[i] == -1)
+         _e_smallest_ring_size[i] = 0;
+   
    _sssr_valid = true;
+}
+
+void Graph::_calculateSSSR ()
+{
+   // Note: function was split into smaller functions to reduce stack usage
+   QS_DEF(CycleBasis, basis);
+   basis.create(*this);
+   _calculateSSSRByCycleBasis(basis);
 }
 
 void Graph::_calculateComponents ()
@@ -809,11 +822,11 @@ void Graph::_cloneGraph_KeepIndices (const Graph &other)
       Vertex &vbeg = _vertices->at(_edges[i].beg);
       Vertex &vend = _vertices->at(_edges[i].end);
 
-      int ve1_idx = vbeg.neighbors.add();
-      int ve2_idx = vend.neighbors.add();
+      int ve1_idx = vbeg.neighbors_list.add();
+      int ve2_idx = vend.neighbors_list.add();
 
-      VertexEdge &ve1 = vbeg.neighbors[ve1_idx];
-      VertexEdge &ve2 = vend.neighbors[ve2_idx];
+      VertexEdge &ve1 = vbeg.neighbors_list[ve1_idx];
+      VertexEdge &ve2 = vend.neighbors_list[ve2_idx];
 
       ve1.v = _edges[i].end;
       ve2.v = _edges[i].beg;
@@ -831,3 +844,25 @@ void Graph::_cloneGraph_KeepIndices (const Graph &other)
    _components_valid = false;
 }
 
+void Graph::_calculateSSSRAddEdgesAndVertices (const Array<int> &cycle, List<int> &edges, List<int> &vertices)
+{
+   int prev_beg = -1;
+   int prev_end = -1;
+
+   for (int j = 0; j < cycle.size(); j++)
+   {
+      const Edge &edge = getEdge(cycle[j]);
+
+      edges.add(cycle[j]);
+
+      if (j != cycle.size() - 1)
+      {
+         if (edge.beg != prev_beg && edge.beg != prev_end)
+            vertices.add(edge.beg);
+         if (edge.end != prev_beg && edge.end != prev_end)
+            vertices.add(edge.end);
+      }
+      prev_beg = edge.beg;
+      prev_end = edge.end;
+   }
+}

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -20,6 +20,8 @@
 #include "molecule/molecule_auto_loader.h"
 #include "molecule/gross_formula.h"
 #include "molecule/elements.h"
+
+IMPL_ERROR(MangoGross, "gross formula");
 
 MangoGross::MangoGross (BingoContext &context) :
 _context(context)
@@ -134,9 +136,7 @@ bool MangoGross::checkMolecule (Scanner &scanner)
    QS_DEF(Array<int>, target_gross);
 
    MoleculeAutoLoader loader(scanner);
-
-   loader.treat_x_as_pseudoatom = _context.treat_x_as_pseudoatom;
-   loader.ignore_closing_bond_direction_mismatch = _context.ignore_closing_bond_direction_mismatch;
+   _context.setLoaderSettings(loader);
    loader.loadMolecule(target);
 
    GrossFormula::collect(target, target_gross);

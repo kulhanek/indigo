@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -32,6 +32,8 @@
 #include "indigo_reaction.h"
 #include "indigo_mapping.h"
 #include "indigo_savers.h"
+#include "molecule/molecule_standardize.h"
+#include "molecule/molecule_ionize.h"
 
 #define CHECKRGB(r, g, b) \
 if (__min3(r, g, b) < 0 || __max3(r, g, b) > 1.0 + 1e-6) \
@@ -44,9 +46,9 @@ CEXPORT int indigoAromatize (int object)
       IndigoObject &obj = self.getObject(object);
 
       if (IndigoBaseMolecule::is(obj))
-         return obj.getBaseMolecule().aromatize() ? 1 : 0;
+         return obj.getBaseMolecule().aromatize(self.arom_options) ? 1 : 0;
       if (IndigoBaseReaction::is(obj))
-         return obj.getBaseReaction().aromatize() ? 1 : 0;
+         return obj.getBaseReaction().aromatize(self.arom_options) ? 1 : 0;
       throw IndigoError("Only molecules and reactions can be aromatized");
    }
    INDIGO_END(-1)
@@ -58,10 +60,13 @@ CEXPORT int indigoDearomatize (int object)
    {
       IndigoObject &obj = self.getObject(object);
 
+      AromaticityOptions arom_options = self.arom_options;
+      arom_options.unique_dearomatization = self.unique_dearomatization;
+
       if (IndigoBaseMolecule::is(obj))
-         return obj.getBaseMolecule().dearomatize() ? 1 : 0;
+         return obj.getBaseMolecule().dearomatize(arom_options) ? 1 : 0;
       if (IndigoBaseReaction::is(obj))
-         return obj.getBaseReaction().dearomatize() ? 1 : 0;
+         return obj.getBaseReaction().dearomatize(arom_options) ? 1 : 0;
       throw IndigoError("Only molecules and reactions can be dearomatized");
    }
    INDIGO_END(-1)
@@ -102,6 +107,18 @@ CEXPORT int indigoSetOptionXY (const char *name, int x, int y)
    INDIGO_END(-1)
 }
 
+void _indigoCheckBadValence (Molecule &mol)
+{
+   mol.restoreAromaticHydrogens();
+   for (int i = mol.vertexBegin(); i != mol.vertexEnd(); i = mol.vertexNext(i))
+   {
+      if (mol.isPseudoAtom(i) || mol.isRSite(i))
+         continue;
+      mol.getAtomValence(i);
+      mol.getImplicitH(i);
+   }
+}
+
 CEXPORT const char * indigoCheckBadValence (int handle)
 {
    INDIGO_BEGIN
@@ -119,20 +136,13 @@ CEXPORT const char * indigoCheckBadValence (int handle)
 
          try
          {
-            int i;
-
-            for (i = mol.vertexBegin(); i != mol.vertexEnd(); i = mol.vertexNext(i))
-            {
-               if (mol.isPseudoAtom(i) || mol.isRSite(i))
-                  continue;
-               mol.getAtomValence(i);
-               mol.getImplicitH(i);
-            }
+            _indigoCheckBadValence(mol);
          }
          catch (Exception &e)
          {
-            self.tmp_string.readString(e.message(), true);
-            return self.tmp_string.ptr();
+            auto &tmp = self.getThreadTmpData();
+            tmp.string.readString(e.message(), true);
+            return tmp.string.ptr();
          }
       }
       else if (IndigoBaseReaction::is(obj))
@@ -146,25 +156,17 @@ CEXPORT const char * indigoCheckBadValence (int handle)
 
          try
          {
-            int i, j;
-
-            for (j = rxn.begin(); j != rxn.end(); j = rxn.next(j))
+            for (int j = rxn.begin(); j != rxn.end(); j = rxn.next(j))
             {
                Molecule &mol = rxn.getMolecule(j);
-               
-               for (i = mol.vertexBegin(); i != mol.vertexEnd(); i = mol.vertexNext(i))
-               {
-                  if (mol.isPseudoAtom(i) || mol.isRSite(i))
-                     continue;
-                  mol.getAtomValence(i);
-                  mol.getImplicitH(i);
-               }
+               _indigoCheckBadValence(mol);
             }
          }
          catch (Exception &e)
          {
-            self.tmp_string.readString(e.message(), true);
-            return self.tmp_string.ptr();
+            auto &tmp = self.getThreadTmpData();
+            tmp.string.readString(e.message(), true);
+            return tmp.string.ptr();
          }
       }
       else
@@ -177,9 +179,8 @@ CEXPORT const char * indigoCheckBadValence (int handle)
 
 void _indigoCheckAmbiguousH (Molecule &mol)
 {
-   int i;
-
-   for (i = mol.vertexBegin(); i != mol.vertexEnd(); i = mol.vertexNext(i))
+   mol.restoreAromaticHydrogens();
+   for (int i = mol.vertexBegin(); i != mol.vertexEnd(); i = mol.vertexNext(i))
       if (mol.getAtomAromaticity(i) == ATOM_AROMATIC)
       {
          int atom_number = mol.getAtomNumber(i);
@@ -210,8 +211,9 @@ CEXPORT const char * indigoCheckAmbiguousH (int handle)
          }
          catch (Exception &e)
          {
-            self.tmp_string.readString(e.message(), true);
-            return self.tmp_string.ptr();
+            auto &tmp = self.getThreadTmpData();
+            tmp.string.readString(e.message(), true);
+            return tmp.string.ptr();
          }
       }
       else if (IndigoBaseReaction::is(obj))
@@ -232,8 +234,9 @@ CEXPORT const char * indigoCheckAmbiguousH (int handle)
          }
          catch (Exception &e)
          {
-            self.tmp_string.readString(e.message(), true);
-            return self.tmp_string.ptr();
+            auto &tmp = self.getThreadTmpData();
+            tmp.string.readString(e.message(), true);
+            return tmp.string.ptr();
          }
       }
       else
@@ -249,9 +252,23 @@ CEXPORT const char * indigoSmiles (int item)
    INDIGO_BEGIN
    {
       IndigoObject &obj = self.getObject(item);
-      IndigoSmilesSaver::generateSmiles(obj, self.tmp_string);
+      auto &tmp = self.getThreadTmpData();
+      IndigoSmilesSaver::generateSmiles(obj, tmp.string);
 
-      return self.tmp_string.ptr();
+      return tmp.string.ptr();
+   }
+   INDIGO_END(0);
+}
+
+CEXPORT const char * indigoCanonicalSmiles (int item)
+{
+   INDIGO_BEGIN
+   {
+      IndigoObject &obj = self.getObject(item);
+      auto &tmp = self.getThreadTmpData();
+      IndigoCanonicalSmilesSaver::generateSmiles(obj, tmp.string);
+
+      return tmp.string.ptr();
    }
    INDIGO_END(0);
 }
@@ -280,18 +297,32 @@ CEXPORT int indigoUnfoldHydrogens (int item)
    INDIGO_END(-1)
 }
 
-static void _removeHydrogens (Molecule &mol)
+static bool _removeHydrogens (Molecule &mol)
 {
    QS_DEF(Array<int>, to_remove);
+   QS_DEF(Array<int>, sterecenters_to_validate);
    int i;
 
+   sterecenters_to_validate.clear();
    to_remove.clear();
    for (i = mol.vertexBegin(); i != mol.vertexEnd(); i = mol.vertexNext(i))
       if (mol.convertableToImplicitHydrogen(i))
+      {
+         const Vertex &v = mol.getVertex(i);
+         int nei = v.neiBegin();
+         if (nei != v.neiEnd())
+         {
+            if (mol.getBondDirection(v.neiEdge(nei)))
+               sterecenters_to_validate.push(v.neiVertex(nei));
+         }
          to_remove.push(i);
+      }
 
    if (to_remove.size() > 0)
       mol.removeAtoms(to_remove);
+   for (int i = 0; i < sterecenters_to_validate.size(); i++)
+      mol.stereocenters.markBond(sterecenters_to_validate[i]);
+   return to_remove.size() > 0;
 }
 
 CEXPORT int indigoFoldHydrogens (int item)
@@ -350,27 +381,31 @@ CEXPORT const char * indigoRawData (int handler)
    {
       IndigoObject &obj = self.getObject(handler);
 
+      auto &tmp = self.getThreadTmpData();
+
       if (obj.type == IndigoObject::RDF_MOLECULE ||
           obj.type == IndigoObject::RDF_REACTION ||
           obj.type == IndigoObject::SMILES_MOLECULE ||
           obj.type == IndigoObject::SMILES_REACTION ||
           obj.type == IndigoObject::CML_MOLECULE ||
-          obj.type == IndigoObject::CML_REACTION)
+          obj.type == IndigoObject::CML_REACTION ||
+          obj.type == IndigoObject::CDX_MOLECULE ||
+          obj.type == IndigoObject::CDX_REACTION)
       {
          IndigoRdfData &data = (IndigoRdfData &)obj;
 
-         self.tmp_string.copy(data.getRawData());
+         tmp.string.copy(data.getRawData());
       }
       else if (obj.type == IndigoObject::PROPERTY)
-         self.tmp_string.copy(((IndigoProperty &)obj).getValue());
+         tmp.string.readString(((IndigoProperty &)obj).getValue(), false);
       else if (obj.type == IndigoObject::DATA_SGROUP)
       {
-         self.tmp_string.copy(((IndigoDataSGroup &)obj).get().data);
+         tmp.string.copy(((IndigoDataSGroup &)obj).get().data);
       }
       else
          throw IndigoError("%s does not have raw data", obj.debugInfo());
-      self.tmp_string.push(0);
-      return self.tmp_string.ptr();
+      tmp.string.push(0);
+      return tmp.string.ptr();
    }
    INDIGO_END(0)
 }
@@ -409,6 +444,13 @@ CEXPORT int indigoAt (int item, int index)
       else if (obj.type == IndigoObject::MULTILINE_SMILES_LOADER)
       {
          IndigoObject * newobj = ((IndigoMultilineSmilesLoader &)obj).at(index);
+         if (newobj == 0)
+            return 0;
+         return self.addObject(newobj);
+      }
+      else if (obj.type == IndigoObject::MULTIPLE_CDX_LOADER)
+      {
+         IndigoObject * newobj = ((IndigoMultipleCdxLoader &)obj).at(index);
          if (newobj == 0)
             return 0;
          return self.addObject(newobj);
@@ -453,7 +495,8 @@ CEXPORT int indigoSerialize (int item, byte **buf, int *size)
    INDIGO_BEGIN
    {
       IndigoObject &obj = self.getObject(item);
-      ArrayOutput out(self.tmp_string);
+      auto &tmp = self.getThreadTmpData();
+      ArrayOutput out(tmp.string);
 
       if (IndigoBaseMolecule::is(obj))
       {
@@ -463,6 +506,7 @@ CEXPORT int indigoSerialize (int item, byte **buf, int *size)
          saver.save_xyz = mol.have_xyz;
          saver.save_bond_dirs = true;
          saver.save_highlighting = true;
+         saver.save_ordering = self.preserve_ordering_in_serialize;
          saver.saveMolecule(mol);
       }
       else if (IndigoBaseReaction::is(obj))
@@ -472,11 +516,12 @@ CEXPORT int indigoSerialize (int item, byte **buf, int *size)
          saver.save_xyz = BaseReaction::haveCoord(rxn);
          saver.save_bond_dirs = true;
          saver.save_highlighting = true;
+         saver.save_ordering = self.preserve_ordering_in_serialize;
          saver.saveReaction(rxn);
       }
 
-      *buf = (byte *)self.tmp_string.ptr();
-      *size = self.tmp_string.size();
+      *buf = (byte *)tmp.string.ptr();
+      *size = tmp.string.size();
       return 1;
    }
    INDIGO_END(-1)
@@ -486,7 +531,7 @@ CEXPORT int indigoUnserialize (const byte *buf, int size)
 {
    INDIGO_BEGIN
    {
-      if (size > 3 && memcmp(buf, "ICM", 3) == 0)
+      if (IcmSaver::checkVersion((const char *)buf))
       {
          BufferScanner scanner(buf, size);
          IcmLoader loader(scanner);
@@ -494,7 +539,7 @@ CEXPORT int indigoUnserialize (const byte *buf, int size)
          loader.loadMolecule(im->mol);
          return self.addObject(im.release());
       }
-      else if (size > 3 && memcmp(buf, "ICR", 3) == 0)
+      else if (IcrSaver::checkVersion((const char *)buf))
       {
          BufferScanner scanner(buf, size);
          IcrLoader loader(scanner);
@@ -693,10 +738,178 @@ CEXPORT const char * indigoDbgInternalType (int object)
    {
       IndigoObject &obj = self.getObject(object);
 
-      char tmp[1024];
-      snprintf(tmp, 1023, "#%02d: %s", obj.type, obj.debugInfo());
-      self.tmp_string.readString(tmp, true);
-      return self.tmp_string.ptr();
+      char tmp_str[1024];
+      snprintf(tmp_str, 1023, "#%02d: %s", obj.type, obj.debugInfo());
+      auto &tmp = self.getThreadTmpData();
+      tmp.string.readString(tmp_str, true);
+      return tmp.string.ptr();
    }
    INDIGO_END(0);
+}
+
+CEXPORT int indigoNormalize (int structure, const char *options)
+{
+   INDIGO_BEGIN
+   {
+      IndigoObject &obj = self.getObject(structure);
+      Molecule &mol = obj.getMolecule();
+
+      bool changed = false;
+
+      // Fold hydrogens
+      changed |= _removeHydrogens(mol);
+
+      // Neutralize charges
+      for (int i = mol.vertexBegin(); i != mol.vertexEnd(); i = mol.vertexNext(i))
+      {
+         int charge = mol.getAtomCharge(i);
+         if (charge == 1 && mol.getAtomNumber(i) == ELEM_N)
+         {
+            const Vertex &v = mol.getVertex(i);
+            for (int nei = v.neiBegin(); nei != v.neiEnd(); nei = v.neiNext(nei))
+            {
+               int j = v.neiVertex(nei);
+               int charge2 = mol.getAtomCharge(j);
+               if (charge2 == -1 && mol.getAtomNumber(j) == ELEM_O)
+               {
+                  int edge_idx = v.neiEdge(nei);
+                  if (mol.getBondOrder(edge_idx) == BOND_SINGLE)
+                  {
+                     mol.setAtomCharge(i, 0);
+                     mol.setAtomCharge(j, 0);
+                     mol.setBondOrder(edge_idx, BOND_DOUBLE);
+                     changed = true;
+                     break;
+                  }
+               }
+            }
+         }
+      }
+
+      if (changed)
+      {
+         // Validate cs-trans because it can disappear
+         // For example: [O-]/[N+](=C\C1C=CC=CC=1)/C1C=CC=CC=1
+         mol.cis_trans.validate();
+      }
+      
+      return changed;
+   }
+   INDIGO_END(-1);
+}
+
+CEXPORT int indigoStandardize (int object)
+{
+   INDIGO_BEGIN
+   {
+      IndigoObject &obj = self.getObject(object);
+
+      if (obj.type == IndigoObject::QUERY_MOLECULE)
+      {
+         IndigoQueryMolecule &qm_obj = (IndigoQueryMolecule &)obj;
+         QueryMolecule &q = qm_obj.getQueryMolecule();
+         q.standardize(self.standardize_options);
+      }
+      else if (obj.type == IndigoObject::MOLECULE)
+      {
+         IndigoMolecule &m_obj = (IndigoMolecule &)obj;
+         Molecule &m = m_obj.getMolecule();
+         m.standardize(self.standardize_options);
+      }
+      else
+         throw IndigoError("indigoStandardize: expected molecule or query, got %s", obj.debugInfo());
+      return 1;
+   }
+   INDIGO_END(-1);
+}
+
+CEXPORT int indigoIonize (int object, float pH, float pH_toll)
+{
+   INDIGO_BEGIN
+   {
+      IndigoObject &obj = self.getObject(object);
+      Molecule &mol = obj.getMolecule();
+      mol.ionize(pH, pH_toll, self.ionize_options);
+      return 1;
+   }
+   INDIGO_END(-1);
+}
+
+CEXPORT int indigoBuildPkaModel (int max_level, float threshold, const char * filename)
+{
+   INDIGO_BEGIN
+   {
+      int level = MoleculePkaModel::buildPkaModel(max_level, threshold, filename);
+      if (level > 0)
+         return 1;
+      return 0;
+   }
+   INDIGO_END(-1);
+}
+
+CEXPORT float * indigoGetAcidPkaValue (int object, int atom, int level, int min_level)
+{
+   INDIGO_BEGIN
+   {
+      IndigoObject &obj = self.getObject(object);
+
+      if (obj.type == IndigoObject::MOLECULE)
+      {
+         IndigoMolecule &m_obj = (IndigoMolecule &)obj;
+         Molecule &mol = m_obj.getMolecule();
+         IndigoAtom &site = IndigoAtom::cast(self.getObject(atom));
+         auto &tmp = self.getThreadTmpData();
+         float pka = MoleculePkaModel::getAcidPkaValue(mol, site.getIndex(), level, min_level);
+         tmp.xyz[0] = pka;
+         return tmp.xyz;
+      }
+      else
+         throw IndigoError("indigoGetAcidPkaValue: expected molecule, got %s", obj.debugInfo());
+      return 0;
+   }
+   INDIGO_END(0);
+}
+
+CEXPORT float * indigoGetBasicPkaValue (int object, int atom, int level, int min_level)
+{
+   INDIGO_BEGIN
+   {
+      IndigoObject &obj = self.getObject(object);
+
+      if (obj.type == IndigoObject::MOLECULE)
+      {
+         IndigoMolecule &m_obj = (IndigoMolecule &)obj;
+         Molecule &mol = m_obj.getMolecule();
+         IndigoAtom &site = IndigoAtom::cast(self.getObject(atom));
+         auto &tmp = self.getThreadTmpData();
+         float pka = MoleculePkaModel::getBasicPkaValue(mol, site.getIndex(), level, min_level);
+         tmp.xyz[0] = pka;
+         return tmp.xyz;
+      }
+      else
+         throw IndigoError("indigoGetBasicPkaValue: expected molecule, got %s", obj.debugInfo());
+      return 0;
+   }
+   INDIGO_END(0);
+}
+
+CEXPORT int indigoIsPossibleFischerProjection (int object, const char *options)
+{
+   INDIGO_BEGIN
+   {
+      IndigoObject &obj = self.getObject(object);
+
+      if (obj.type == IndigoObject::MOLECULE)
+      {
+         IndigoMolecule &m_obj = (IndigoMolecule &)obj;
+         Molecule &mol = m_obj.getMolecule();
+         if (mol.isPossibleFischerProjection(options))
+            return 1;
+         return 0;
+      }
+      else
+         throw IndigoError("indigoIsPossibleFischerProjection: expected molecule, got %s", obj.debugInfo());
+      return -1;
+   }
+   INDIGO_END(-1);
 }

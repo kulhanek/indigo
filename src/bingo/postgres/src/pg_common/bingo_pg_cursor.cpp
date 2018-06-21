@@ -1,3 +1,5 @@
+#include "bingo_pg_fix_pre.h"
+
 extern "C" {
 #include "postgres.h"
 #include "fmgr.h"
@@ -5,15 +7,8 @@ extern "C" {
 #include "storage/itemptr.h"
 #include "executor/spi.h"
 }
-#ifdef qsort
-#undef qsort
-#endif
-#ifdef printf
-#undef printf
-#endif
-#ifdef vprintf
-#undef vprintf
-#endif
+
+#include "bingo_pg_fix_post.h"
 
 #include "bingo_pg_cursor.h"
 #include "bingo_pg_common.h"
@@ -26,6 +21,8 @@ extern "C" {
 using namespace indigo;
 
 static int cursor_idx = 0;
+
+IMPL_ERROR(BingoPgCursor, "bingo cursor access");
 
 BingoPgCursor::BingoPgCursor(const char *format, ...) {
    Array<char> buf;
@@ -92,8 +89,43 @@ void BingoPgCursor::getId(int arg_idx, ItemPointerData& data) {
    BINGO_PG_HANDLE(throw Error("internal error: can not get the id from the data: %s", message));
 }
 void BingoPgCursor::getText(int arg_idx, BingoPgText& data) {
-   Datum record = getDatum(arg_idx);
-   data.init(record);
+   if(SPI_processed == 0)
+      throw Error("internal error: can not get not processed tuple");
+
+   if(SPI_tuptable == NULL)
+      throw Error("internal error: can not get null tuple");
+
+   Datum record = 0;
+   
+   BINGO_PG_TRY
+   {
+      TupleDesc tupdesc = SPI_tuptable->tupdesc;
+
+      /*
+       * Tuple index is always 0
+       */
+      int tuple_idx = 0;
+
+      HeapTuple tuple = SPI_tuptable->vals[tuple_idx];
+
+      if (arg_idx > tupdesc->natts)
+         elog(ERROR, "internal error: can not get tuple was not in query %d > %d", arg_idx, tupdesc->natts);
+
+      char *result = SPI_getvalue(tuple, tupdesc, arg_idx);
+      if (result == NULL) {
+         if (SPI_result == SPI_ERROR_NOATTRIBUTE)
+            elog(ERROR, "internal error: colnumber is out of range (SPI_getvalue)");
+         else if (SPI_result == SPI_ERROR_NOOUTFUNC)
+            elog(ERROR, "internal error: no output function is available (SPI_getvalue)");
+         else
+            data.initFromString("\0");
+      }
+      else {
+         data.initFromString(result);
+         pfree(result);
+      }
+   }
+   BINGO_PG_HANDLE(throw Error("internal error: can not get datum from the tuple: %s", message));
 }
 
 uintptr_t  BingoPgCursor::getDatum(int arg_idx) {
@@ -118,12 +150,12 @@ uintptr_t  BingoPgCursor::getDatum(int arg_idx) {
       bool isnull;
 
       if (arg_idx > tupdesc->natts)
-         throw Error("internal error: can not get tuple was not in query %d > %d", arg_idx, tupdesc->natts);
+         elog(ERROR, "internal error: can not get tuple was not in query %d > %d", arg_idx, tupdesc->natts);
 
       record = SPI_getbinval(tuple, tupdesc, arg_idx, &isnull);
 
       if (isnull)
-         throw Error("internal error: can not get null tuple");
+         elog(ERROR, "internal error: can not get null tuple");
    }
    BINGO_PG_HANDLE(throw Error("internal error: can not get datum from the tuple: %s", message));
    
@@ -140,7 +172,7 @@ unsigned int BingoPgCursor::getArgOid(int arg_idx) {
    {
       TupleDesc tupdesc = SPI_tuptable->tupdesc;
       if(arg_idx >= tupdesc->natts)
-         throw Error("internal error: can not get argument %d natts = %d", arg_idx, tupdesc->natts);
+         elog(ERROR, "internal error: can not get argument %d natts = %d", arg_idx, tupdesc->natts);
       result = tupdesc->attrs[arg_idx]->atttypid;
       
    }

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -19,11 +19,16 @@
 #include "base_cpp/obj.h"
 #include "crf_saver.h"
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
+
 namespace indigo {
 
 class Reaction;
 
-class CrfLoader
+class DLLEXPORT CrfLoader
 {
 public:
    // external dictionary, internal encoder
@@ -35,13 +40,15 @@ public:
    void loadReaction (Reaction &reaction);
 
    Scanner *xyz_scanner;
+   int version; // By default the latest version 2 is used
 
-   DEF_ERROR("CRF loader");
+   DECL_ERROR;
 protected:
 
    void _init ();
 
    void _loadMolecule (Molecule &molecule);
+   void _loadReactionMolecule (Reaction &reaction, int index, bool have_aam);
 
    Scanner &_scanner;
 
@@ -57,5 +64,9 @@ private:
 };
 
 }
+
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 #endif

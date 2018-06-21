@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -16,7 +16,7 @@
 
 #include "base_cpp/io_base.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(__MINGW32__)
 #include <windows.h>
 #include <io.h>
 #include <fcntl.h>
@@ -27,18 +27,18 @@ using namespace indigo;
 FILE *indigo::openFile( Encoding filename_encoding, const char *filename, const char *mode )
 {
    FILE *file = 0;
-//#ifdef _WIN32
-//   if (filename_encoding == ENCODING_UTF8)
-//   {
-//      wchar_t w_filename[1024];
-//      wchar_t w_mode[10];
+#if defined(_WIN32) && !defined(__MINGW32__)
+   if (filename_encoding == ENCODING_UTF8)
+   {
+      wchar_t w_filename[1024];
+      wchar_t w_mode[10];
 
-//      MultiByteToWideChar(CP_UTF8, 0, filename, -1, w_filename, 1024);
-//      MultiByteToWideChar(CP_UTF8, 0, mode, -1, w_mode, 10);
+      MultiByteToWideChar(CP_UTF8, 0, filename, -1, w_filename, 1024);
+      MultiByteToWideChar(CP_UTF8, 0, mode, -1, w_mode, 10);
       
-//      file = _wfopen(w_filename, w_mode);
-//   }
-//#endif
+      file = _wfopen(w_filename, w_mode);
+   }
+#endif
    if (file == 0)
    {
       // For ASCII and linux
@@ -48,27 +48,27 @@ FILE *indigo::openFile( Encoding filename_encoding, const char *filename, const 
    return file;
 }
 
-//#ifdef _WIN32
-//CLocale CLocale::instance;
+#if defined(_WIN32) && !defined(__MINGW32__)
+CLocale CLocale::instance;
 
-//_locale_t indigo::getCLocale ()
-//{
-//   return CLocale::instance.get();
-//}
+_locale_t indigo::getCLocale ()
+{
+   return CLocale::instance.get();
+}
 
-//CLocale::CLocale ()
-//{
-//   _locale = _create_locale(LC_ALL, "C");
-//}
+CLocale::CLocale ()
+{
+   _locale = _create_locale(LC_ALL, "C");
+}
 
-//CLocale::~CLocale ()
-//{
-//   _free_locale(_locale);
-//}
+CLocale::~CLocale ()
+{
+   _free_locale(_locale);
+}
 
-//_locale_t CLocale::get ()
-//{
-//   return _locale;
-//}
+_locale_t CLocale::get ()
+{
+   return _locale;
+}
 
-//#endif
+#endif

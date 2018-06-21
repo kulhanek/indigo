@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -17,9 +17,11 @@
 
 #include "base_cpp/array.h"
 #include "base_cpp/list.h"
+#include "base_cpp/non_copyable.h"
 #include "base_cpp/obj_pool.h"
 #include "base_cpp/obj_array.h"
 #include "graph/filter.h"
+#include "graph/graph_iterators.h"
 
 #ifdef _WIN32
 #pragma warning(push)
@@ -52,22 +54,24 @@ struct VertexEdge
 class DLLEXPORT Vertex
 {
 public:
-   Vertex (Pool<List<VertexEdge>::Elem> &pool) : neighbors(pool) {}
+   Vertex (Pool<List<VertexEdge>::Elem> &pool) : neighbors_list(pool) {}
    ~Vertex () {}
 
-   List<VertexEdge> neighbors;
+   List<VertexEdge> neighbors_list;
 
-   int neiBegin ()      const { return neighbors.begin(); }
-   int neiEnd   ()      const { return neighbors.end(); }
-   int neiNext  (int i) const { return neighbors.next(i); }
+   NeighborsAuto neighbors() const;
 
-   int neiVertex (int i) const { return neighbors[i].v; }
-   int neiEdge   (int i) const { return neighbors[i].e; }
+   int neiBegin ()      const { return neighbors_list.begin(); }
+   int neiEnd   ()      const { return neighbors_list.end(); }
+   int neiNext  (int i) const { return neighbors_list.next(i); }
+
+   int neiVertex (int i) const { return neighbors_list[i].v; }
+   int neiEdge   (int i) const { return neighbors_list[i].e; }
 
    int findNeiVertex (int idx) const;
    int findNeiEdge   (int idx) const;
 
-   int degree () const {return neighbors.size();}
+   int degree () const {return neighbors_list.size();}
 private:
    Vertex (const Vertex &); // no implicit copy
 };
@@ -87,16 +91,22 @@ struct Edge
    }
 };
 
-class DLLEXPORT Graph
+class CycleBasis;
+
+class DLLEXPORT Graph : public NonCopyable
 {
 public:
-   DEF_ERROR("graph");
+   DECL_ERROR;
 
    explicit Graph ();
    virtual ~Graph ();
 
-   virtual void clear ();
+   VerticesAuto vertices ();
 
+   EdgesAuto edges ();
+
+   virtual void clear ();
+   
    const Vertex & getVertex (int idx) const;
 
    const Edge & getEdge   (int idx) const;
@@ -118,6 +128,7 @@ public:
    bool haveEdge (int beg, int end) const;
    bool hasEdge (int idx) const;
    bool hasVertex(int idx) const;
+   int  getEdgeEnd (int beg, int edge) const;
 
    void swapEdgeEnds (int edge_idx);
    void removeEdge (int idx);
@@ -126,7 +137,8 @@ public:
 
    bool findPath (int from, int where, Array<int> &path_out) const;
 
-   void makeSubgraph (const Graph &other, const Array<int> &vertices, Array<int> *mapping);
+   void makeSubgraph (const Graph &other, const Array<int> &vertices, Array<int> *vertex_mapping);
+   void makeSubgraph (const Graph &other, const Array<int> &vertices, Array<int> *vertex_mapping, const Array<int> *edges, Array<int> *edge_mapping);
    void makeSubgraph (const Graph &other, const Filter &filter, Array<int> *mapping_out, Array<int> *inv_mapping);
    void cloneGraph (const Graph &other, Array<int> *mapping);
 
@@ -140,9 +152,9 @@ public:
    void setEdgeTopology (int idx, int topology);
    void validateEdgeTopologies ();
 
-   static bool isConnected (const Graph &graph);
+   static bool isConnected (Graph &graph);
    static bool isChain_AssumingConnected (const Graph &graph);
-   static bool isTree (const Graph &graph);
+   static bool isTree (Graph &graph);
    static void filterVertices (const Graph &graph, const int *filter, int filter_type, int filter_value, Array<int> &result);
    static void filterEdges (const Graph &graph, const int *filter, int filter_type, int filter_value, Array<int> &result);
    static int  findMappedEdge (const Graph &graph, const Graph &mapped_graph, int edge_idx, const int *mapping);
@@ -150,6 +162,7 @@ public:
    int vertexCountSSSR (int idx);
    int vertexSmallestRingSize (int idx);
    bool vertexInRing(int idx);
+   int edgeSmallestRingSize (int idx);
 
    List<int> & sssrEdges (int idx);
    List<int> & sssrVertices (int idx);
@@ -172,7 +185,7 @@ protected:
    Array<int> _topology; // for each edge: TOPOLOGY_RING, TOPOLOGY_CHAIN, or -1 (not calculated)
    bool       _topology_valid;
 
-   Array<int> _v_smallest_ring_size;
+   Array<int> _v_smallest_ring_size, _e_smallest_ring_size;
    Array<int> _v_sssr_count;
    Pool<List<int>::Elem> *_sssr_pool;
    ObjArray< List<int> > _sssr_vertices;
@@ -182,19 +195,20 @@ protected:
    Array<int> _component_numbers;
    Array<int> _component_vcount;
    Array<int> _component_ecount;
-   int        _components_valid;
+   bool        _components_valid;
    int        _components_count;
 
    void _calculateTopology ();
    void _calculateSSSR ();
+   void _calculateSSSRInit ();
+   void _calculateSSSRByCycleBasis (CycleBasis &basis);
+   void _calculateSSSRAddEdgesAndVertices (const Array<int> &cycle, List<int> &edges, List<int> &vertices);
    void _calculateComponents ();
 
    // This is a bad hack for those who are too lazy to handle the mappings.
    // NEVER USE IT.
    void _cloneGraph_KeepIndices (const Graph &other);
 
-private:
-   Graph (const Graph &); // no implicit copy
 };
 
 }

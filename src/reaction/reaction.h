@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -55,8 +55,8 @@ public:
 
    Molecule & getMolecule (int index);
 
-   virtual bool aromatize();
-   virtual bool dearomatize();
+   virtual bool aromatize (const AromaticityOptions &options);
+   virtual bool dearomatize (const AromaticityOptions &options);
 
    virtual Reaction & asReaction ();
 
@@ -72,14 +72,10 @@ public:
 
    void unfoldHydrogens ();
 
-   DEF_ERROR("reaction");
+   DECL_ERROR;
 
 protected:
-
    virtual int _addBaseMolecule (int side);
-
-private:
-   Reaction (const Reaction&);//no implicit copy
 };
 
 }

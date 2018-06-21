@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -16,8 +16,8 @@
 #define	_RDF_LOADER_H__
 
 #include "base_cpp/tlscont.h"
-#include "base_cpp/red_black.h"
 #include "base_cpp/obj.h"
+#include "base_cpp/properties_map.h"
 
 namespace indigo {
 
@@ -30,6 +30,10 @@ class Scanner;
  */
 class RdfLoader
 {
+	/*
+	 * Max data size is 100 Mb
+	 */
+	enum { MAX_DATA_SIZE = 104857600 };
 public:
    RdfLoader (Scanner &scanner);
    ~RdfLoader ();
@@ -41,6 +45,7 @@ public:
    int currentNumber ();
    int count ();
 
+   CP_DECL;
    /*
     * Data buffer with reaction or molecule for current record
     */
@@ -48,14 +53,14 @@ public:
    /*
     * Properties map for current record
     */
-   TL_CP_DECL(RedBlackStringObjMap< Array<char> >, properties);
+   TL_CP_DECL(PropertiesMap, properties);
 
    /*
     * Defines is molecule or reaction there in the current record
     */
    bool isMolecule() const { return _isMolecule;}
 
-   DEF_ERROR("RDF loader");
+   DECL_ERROR;
 
 protected:
 

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -319,6 +319,8 @@ void TautomerChainFinder::restore ()
       _context.dearomatizationMatcher->unfixBond(_bond_idx2);
 }
 
+IMPL_ERROR(TautomerChainChecker, "tautomer chain checker");
+
 TautomerChainChecker::TautomerChainChecker (TautomerSearchContext &context,
                                             const Array<int> &core1, const Array<int> &core2,
                                             int start_path_number) :
@@ -594,7 +596,7 @@ int TautomerChainChecker::isFeasiblePair (int n1, int n2, TautomerChainChecker &
    if (_prev_n2 != -1 && n2 != -1 && _context.decomposer2.getComponent(_prev_n2) != _context.decomposer2.getComponent(n2))
       return 0;
    
-   if (_context.g2.isPseudoAtom(n2)) // n1 are checked in matchAtomsTau later
+   if (_context.g2.isPseudoAtom(n2) || _context.g2.isTemplateAtom(n2)) // n1 are checked in matchAtomsTau later
       return 0;
 
    int h_diff = _h_difference;
@@ -1220,13 +1222,13 @@ bool TautomerChainChecker::_matchAromatizedQuery()
    QS_DEF(Array<int>, mapping);
 
    aromatized_query.clone(((BaseMolecule &)_context.g1).asQueryMolecule(), 0, &mapping);
-   QueryMoleculeAromatizer::aromatizeBonds(aromatized_query);
+   QueryMoleculeAromatizer::aromatizeBonds(aromatized_query, _context.arom_options);
 
    EmbeddingEnumerator ee(_context.g2);
 
    ee.setSubgraph(aromatized_query);
 
-   AromaticityMatcher am(aromatized_query, (Molecule &)_context.g2);
+   AromaticityMatcher am(aromatized_query, (Molecule &)_context.g2, _context.arom_options);
 
    ee.userdata = &am;
 

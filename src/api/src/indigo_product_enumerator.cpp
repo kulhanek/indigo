@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -17,7 +17,9 @@
 #include "indigo_array.h"
 #include "base_cpp/scanner.h"
 #include "base_cpp/output.h"
+#include "base_cpp/cancellation_handler.h"
 #include "layout/molecule_layout.h"
+#include "layout/reaction_layout.h"
 #include "molecule/molecule.h"
 #include "molecule/molfile_loader.h"
 #include "molecule/sdf_loader.h"
@@ -27,7 +29,9 @@
 #include "reaction/rxnfile_saver.h"
 #include "reaction/reaction_auto_loader.h"
 #include "reaction/reaction_product_enumerator.h"
-#include "reaction/reaction_transformation.h" 
+#include "reaction/reaction_transformation.h"
+#include "base_cpp/properties_map.h"
+#include "indigo_mapping.h"
 
 struct ProductEnumeratorCallbackData 
 {
@@ -35,7 +39,7 @@ struct ProductEnumeratorCallbackData
    ObjArray<Reaction> *out_reactions;
 };
 
-static void product_proc( Molecule &product, Array<int> &monomers_indices, void *userdata )
+static void product_proc( Molecule &product, Array<int> &monomers_indices, Array<int> &mapping, void *userdata )
 {
    ProductEnumeratorCallbackData *rpe_data = (ProductEnumeratorCallbackData *)userdata;
 
@@ -45,20 +49,12 @@ static void product_proc( Molecule &product, Array<int> &monomers_indices, void 
    new_product.clear();
    new_product.clone(product, NULL, NULL);   
 
-   MoleculeLayout mol_layout(new_product);
-   mol_layout.respect_existing_layout = false;
-   mol_layout.make();
-   new_product.clearBondDirections();
-   new_product.stereocenters.markBonds();
-   new_product.allene_stereo.markBonds();
-
    reaction.clear();
 
    for (int i = 0; i < monomers_indices.size(); i++)
       reaction.addReactantCopy(rpe_data->rpe->getMonomer(monomers_indices[i]), NULL, NULL);
 
    reaction.addProductCopy(new_product, NULL, NULL);
-   reaction.markStereocenterBonds();
 
    reaction.name.copy(product.name);
 }
@@ -67,10 +63,13 @@ CEXPORT int indigoReactionProductEnumerate (int reaction, int monomers)
 {
    INDIGO_BEGIN
    {
+      bool has_coord = false;
+
       QueryReaction &query_rxn = self.getObject(reaction).getQueryReaction();
       IndigoArray &monomers_object = IndigoArray::cast(self.getObject(monomers));
 
       ReactionProductEnumerator rpe(query_rxn);
+      rpe.arom_options = self.arom_options;
 
       ObjArray<Reaction> out_reactions;
 
@@ -87,6 +86,8 @@ CEXPORT int indigoReactionProductEnumerate (int reaction, int monomers)
          for (int j = 0; j < reactant_monomers_object.objects.size(); j++)
          {
             Molecule &monomer = reactant_monomers_object.objects[j]->getMolecule();
+            if (monomer.have_xyz)
+               has_coord = true;
             rpe.addMonomer(i, monomer);
          }
          user_reactant_idx++;
@@ -103,7 +104,6 @@ CEXPORT int indigoReactionProductEnumerate (int reaction, int monomers)
       ProductEnumeratorCallbackData rpe_data;
       rpe_data.out_reactions = &out_reactions;
       rpe_data.rpe = &rpe;
-
       rpe.userdata = &rpe_data;
 
       rpe.buildProducts();
@@ -112,6 +112,13 @@ CEXPORT int indigoReactionProductEnumerate (int reaction, int monomers)
 
       for (int i = 0; i < out_reactions.size(); i++)
       {
+         if (has_coord && self.rpe_params.is_layout)
+         {
+            ReactionLayout layout(out_reactions[i], self.smart_layout);
+            layout.make();
+            out_reactions[i].markStereocenterBonds();
+         }
+
          QS_DEF(IndigoReaction, indigo_rxn);
          indigo_rxn.rxn.clone(out_reactions[i], NULL, NULL, NULL);
 
@@ -129,26 +136,78 @@ CEXPORT int indigoTransform (int reaction, int monomers)
    {
       IndigoObject &monomers_object = self.getObject(monomers);
       QueryReaction &query_rxn = self.getObject(reaction).getQueryReaction();
-
+         
       ReactionTransformation rt;
+      rt.arom_options = self.arom_options;
+      rt.layout_flag = self.rpe_params.transform_is_layout;
+      rt.smart_layout = self.smart_layout;
 
-      if (monomers_object.type == IndigoObject::MOLECULE)
+      // Try to work with molecule first
+      bool is_mol = false;
+      try 
       {
+         monomers_object.getMolecule();
+         is_mol = true;
+      }
+      catch (IndigoError)
+      {
+      }
+
+      TimeoutCancellationHandler cancellation(self.cancellation_timeout);
+      rt.cancellation = &cancellation;
+
+      bool transformed_flag = false;
+   
+      IndigoObject *out_mapping = 0;
+      
+      if (is_mol)
+      {
+         Array<int> mapping;
          Molecule &mol = monomers_object.getMolecule();
-         rt.transform(mol, query_rxn);
+         Molecule input_mol;
+         input_mol.clone(mol, 0, 0);
+         
+         transformed_flag = rt.transform(mol, query_rxn, &mapping);
+
+         AutoPtr<IndigoMapping> mptr(new IndigoMapping(input_mol, mol));
+      
+         mptr.get()->mapping.copy(mapping);
+
+         out_mapping = mptr.release();
       }
       else if (monomers_object.type == IndigoObject::ARRAY)
       {
          IndigoArray &monomers_array = IndigoArray::cast(self.getObject(monomers));
-
-      
+         AutoPtr<IndigoArray> out_array(new IndigoArray());
+         
          for (int i = 0; i < monomers_array.objects.size(); i++)
-            rt.transform(monomers_array.objects[i]->getMolecule(), query_rxn);
+         {
+            
+            Array<int> mapping;
+            Molecule &mol = monomers_object.getMolecule();
+            Molecule input_mol;
+            input_mol.clone(mol, 0, 0);
+         
+            if (rt.transform(monomers_array.objects[i]->getMolecule(), query_rxn, &mapping))
+               transformed_flag = true;
+
+            AutoPtr<IndigoMapping> mptr(new IndigoMapping(input_mol, mol));
+            mptr.get()->mapping.copy(mapping);
+
+            out_array.get()->objects.add(mptr.release());
+         }
+
+         out_mapping = out_array.release();
       }
       else
          throw IndigoError("%s is not a molecule or array of molecules", self.getObject(monomers).debugInfo());
 
-      return 1;
+      if (transformed_flag)
+         return self.addObject(out_mapping);
+      else
+      {
+         return 0;
+      }
    }
    INDIGO_END(-1)
 }
@@ -188,6 +247,18 @@ void indigoProductEnumeratorSetMaximumProductsCount (int max_pr_cnt)
    self.rpe_params.max_product_count = max_pr_cnt;
 }
 
+void indigoProductEnumeratorSetLayoutFlag (int layout_flag)
+{
+   Indigo &self = indigoGetInstance();
+   self.rpe_params.is_layout = (layout_flag != 0);
+}
+
+void indigoProductEnumeratorSetTransformLayoutFlag (int transform_layout_flag)
+{
+   Indigo &self = indigoGetInstance();
+   self.rpe_params.transform_is_layout = (transform_layout_flag != 0);
+}
+
 
 class _IndigoRPEOptionsHandlersSetter
 {
@@ -206,6 +277,8 @@ _IndigoRPEOptionsHandlersSetter::_IndigoRPEOptionsHandlersSetter ()
    mgr.setOptionHandlerBool("rpe-self-reaction", indigoProductEnumeratorSetSelfReactionFlag);
    mgr.setOptionHandlerInt("rpe-max-depth", indigoProductEnumeratorSetMaximumSearchDepth);
    mgr.setOptionHandlerInt("rpe-max-products-count", indigoProductEnumeratorSetMaximumProductsCount);
+   mgr.setOptionHandlerBool("rpe-layout", indigoProductEnumeratorSetLayoutFlag);
+   mgr.setOptionHandlerBool("transform-layout", indigoProductEnumeratorSetTransformLayoutFlag);
 }
 
 _IndigoRPEOptionsHandlersSetter _indigo_rpe_options_handlers_setter;

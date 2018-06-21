@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -26,6 +26,8 @@
 #include "indigo-renderer.h"
 #include "indigo_molecule.h"
 #include "indigo_reaction.h"
+#include "render2d/render_cdxml.h"
+#include "base_cpp/properties_map.h"
 
 using namespace indigo;
 
@@ -33,7 +35,14 @@ _SessionLocalContainer<IndigoRenderer> indigo_renderer_self;
 
 IndigoRenderer &indigoRendererGetInstance ()
 {
-   return indigo_renderer_self.getLocalCopy();
+   IndigoRenderer &inst = indigo_renderer_self.getLocalCopy();
+   inst.validate();
+   return inst;
+}
+
+void IndigoRenderer::init ()
+{
+   renderParams.clear();
 }
 
 #define CHECKRGB(r, g, b) \
@@ -56,13 +65,38 @@ void indigoRenderSetCommentOffset (int offset)
    rp.cnvOpt.commentOffset = offset;
 }
 
+void indigoRenderSetImageWidth (int v)
+{
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   rp.cnvOpt.width = v;
+}
+
+void indigoRenderSetImageHeight (int v)
+{
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   rp.cnvOpt.height = v;
+}
+
+void indigoRenderSetImageMaxWidth (int v)
+{
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+ 
+   rp.cnvOpt.maxWidth = v;
+}
+
+void indigoRenderSetImageMaxHeight (int v)
+{
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   rp.cnvOpt.maxHeight = v;
+}
+
 void indigoRenderSetTitleOffset (int offset)
 {
    RenderParams& rp = indigoRendererGetInstance().renderParams;
    rp.cnvOpt.titleOffset = offset;
 }                    
 
-void indigoRenderSetOutputFormat (const char *format)
+DINGO_MODE indigoRenderMapOutputFormat (const char *format)
 {
    TL_DECL_GET(StringIntMap, outFmtMap);
    if (outFmtMap.size() == 0) {
@@ -70,9 +104,15 @@ void indigoRenderSetOutputFormat (const char *format)
       outFmtMap.insert("png", MODE_PNG);
       outFmtMap.insert("svg", MODE_SVG);
       outFmtMap.insert("emf", MODE_EMF);
+      outFmtMap.insert("cdxml", MODE_CDXML);
    }
+   return outFmtMap.find(format) ? (DINGO_MODE)outFmtMap.at(format) : MODE_NONE;
+}
+
+void indigoRenderSetOutputFormat (const char *format)
+{
    RenderParams& rp = indigoRendererGetInstance().renderParams;
-   rp.rOpt.mode = (DINGO_MODE)outFmtMap.at(format);
+   rp.rOpt.mode = indigoRenderMapOutputFormat(format);
 }
 
 void indigoRenderSetImageSize (int width, int height)
@@ -117,6 +157,14 @@ void indigoRenderSetRelativeThickness (float rt)
    rp.relativeThickness = rt;
 }
 
+void indigoRenderSetBondLineWidth (float w)
+{
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   if (w <= 0.0f)
+      throw IndigoError("bond line width factor must be positive");
+   rp.bondLineWidthFactor = w;
+}
+
 void indigoRenderSetBackgroundColor (float r, float g, float b)
 {
    RenderParams& rp = indigoRendererGetInstance().renderParams;
@@ -139,6 +187,12 @@ void indigoRenderSetHighlightedLabelsVisible (int enabled)
 {
    RenderParams& rp = indigoRendererGetInstance().renderParams;
    rp.rOpt.highlightedLabelsVisible = enabled != 0;
+}
+
+void indigoRenderSetBoldBondDetection (int enabled)
+{
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   rp.rOpt.boldBondDetection = enabled != 0;
 }
 
 void indigoRenderSetColoring (int enabled)
@@ -271,6 +325,13 @@ void indigoRenderSetComment (const char* comment)
    rp.cnvOpt.comment.appendString(comment, true);
 }
 
+void indigoRenderSetAtomColorProperty (const char* prop)
+{
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   rp.rOpt.atomColorProp.clear();
+   rp.rOpt.atomColorProp.appendString(prop, true);
+}
+
 void indigoRenderSetCommentFontSize (float fontSize)
 {
    RenderParams& rp = indigoRendererGetInstance().renderParams;
@@ -283,16 +344,60 @@ void indigoRenderSetTitleFontSize (float fontSize)
    rp.rOpt.titleFontFactor = fontSize;
 }                                
 
-void indigoRenderSetCommentAlignment (float align)
+static MultilineTextLayout _parseTextLayout (const char *text)
 {
-   RenderParams& rp = indigoRendererGetInstance().renderParams;
-   rp.cnvOpt.commentAlign = align;
+   // Try to read as float for compatibility with previous versions
+   BufferScanner scanner(text);
+   float val;
+   if (scanner.tryReadFloat(val))
+   {
+      float eps = 1e-6f;
+      if (fabs(val) < eps)
+         text = "left";
+      else if (fabs(val - 0.5f) < eps)
+         text = "center";
+      else if (fabs(val - 1.0f) < eps)
+         text = "right";
+      else
+         throw IndigoError("Alignment allow only 0.0, 0.5, or 1.0 values");
+   }
+
+   if (strcasecmp(text, "left") == 0)
+      return MultilineTextLayout(MultilineTextLayout::Left, MultilineTextLayout::Left);
+   else if (strcasecmp(text, "right") == 0)
+      return MultilineTextLayout(MultilineTextLayout::Right, MultilineTextLayout::Right);
+   else if (strcasecmp(text, "center") == 0)
+      return MultilineTextLayout(MultilineTextLayout::Center, MultilineTextLayout::Center);
+   else if (strcasecmp(text, "center-left") == 0)
+      return MultilineTextLayout(MultilineTextLayout::Center, MultilineTextLayout::Left);
+   else if (strcasecmp(text, "center-right") == 0)
+      return MultilineTextLayout(MultilineTextLayout::Center, MultilineTextLayout::Right);
+   else
+      throw IndigoError("Option value is invalid");
 }
 
-void indigoRenderSetTitleAlignment (float align)
+void indigoRenderSetCommentSpacing (float spacing)
 {
    RenderParams& rp = indigoRendererGetInstance().renderParams;
-   rp.cnvOpt.titleAlign = align;
+   rp.rOpt.commentSpacing = spacing;
+}
+
+void indigoRenderSetCommentAlignment (const char *text)
+{
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   rp.cnvOpt.commentAlign = _parseTextLayout(text);
+}
+
+void indigoRenderSetTitleSpacing (float spacing)
+{
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   rp.rOpt.titleSpacing = spacing;
+}
+
+void indigoRenderSetTitleAlignment (const char *text)
+{
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   rp.cnvOpt.titleAlign = _parseTextLayout(text);
 }
 
 void indigoRenderSetCommentPosition (const char* pos)
@@ -311,7 +416,75 @@ void indigoRenderSetGridTitleProperty (const char* prop)
    RenderParams& rp = indigoRendererGetInstance().renderParams;
    rp.cnvOpt.titleProp.clear();
    rp.cnvOpt.titleProp.appendString(prop, true);
-}                                      
+}
+
+
+RenderCdxmlContext& getCdxmlContext() {
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   if (rp.rOpt.cdxml_context.get() == NULL) {
+      rp.rOpt.cdxml_context.create();
+   }
+   return rp.rOpt.cdxml_context.ref();
+}
+
+
+void indigoRenderSetCdxmlTitleFont(const char* font)
+{
+   RenderCdxmlContext& context = getCdxmlContext();
+   context.titleFont.readString(font, true);
+}
+void indigoRenderSetCdxmlTitleFace(const char* face)
+{
+   RenderCdxmlContext& context = getCdxmlContext();
+   context.titleFace.readString(face, true);
+}
+
+void indigoRenderSetCdxmlPropertiesSize(float size)
+{
+   RenderCdxmlContext& context = getCdxmlContext();
+   context.propertyFontSize = size;
+}
+void indigoRenderSetCdxmlPropertiesFontTable(const char* fonttable)
+{
+   RenderCdxmlContext& context = getCdxmlContext();
+   context.fonttable.readString(fonttable, true);
+}
+void indigoRenderSetCdxmlPropertiesColorTable(const char* colortable)
+{
+   RenderCdxmlContext& context = getCdxmlContext();
+   context.colortable.readString(colortable, true);
+}
+
+void indigoRenderSetCdxmlPropertiesNameProperty(const char* name)
+{
+   RenderCdxmlContext& context = getCdxmlContext();
+   context.propertyNameCaption.readString(name, true);
+}
+
+void indigoRenderSetCdxmlPropertiesValueProperty(const char* value)
+{
+   RenderCdxmlContext& context = getCdxmlContext();
+   context.propertyValueCaption.readString(value, true);
+}
+
+void indigoRenderSetCdxmlPropertiesKeyAlignment(const char* value)
+{
+   RenderCdxmlContext& context = getCdxmlContext();
+   if (strcasecmp(value, "left") == 0)
+      context.keyAlignment = RenderCdxmlContext::ALIGNMENT_LEFT;
+   else if (strcasecmp(value, "right") == 0)
+      context.keyAlignment = RenderCdxmlContext::ALIGNMENT_RIGHT;
+   else
+      throw IndigoError("Option value alignment is invalid");
+}
+
+
+void indigoRenderSetCdxmlPropertiesEnabled(int enabled)
+{
+   RenderCdxmlContext& context = getCdxmlContext();
+   context.enabled = (enabled != 0);
+
+}
 
 CEXPORT int indigoRender (int object, int output)
 {
@@ -330,7 +503,7 @@ CEXPORT int indigoRender (int object, int output)
             rp.mol.reset(new QueryMolecule());
          else
             rp.mol.reset(new Molecule());
-         rp.mol->clone(self.getObject(object).getBaseMolecule(), 0, 0);
+         rp.mol->clone_KeepIndices(self.getObject(object).getBaseMolecule());
          rp.rmode = RENDER_MOL;
       }
       else if (IndigoBaseReaction::is(obj))
@@ -369,6 +542,10 @@ CEXPORT int indigoRenderGrid (int objects, int* refAtoms, int nColumns, int outp
       rp.clearArrays();
 
       PtrArray<IndigoObject>& objs = IndigoArray::cast(self.getObject(objects)).objects;
+      if (rp.rOpt.cdxml_context.get() != NULL) {
+         RenderCdxmlContext& context = rp.rOpt.cdxml_context.ref();
+         context.property_data.clear();
+      }
       if (IndigoBaseMolecule::is(*objs[0]))
       {
          for (int i = 0; i < objs.size(); ++i) {
@@ -377,10 +554,30 @@ CEXPORT int indigoRenderGrid (int objects, int* refAtoms, int nColumns, int outp
             else
                rp.mols.add(new Molecule());
             Array<char>& title = rp.titles.push();
-            if (objs[i]->getProperties()->find(rp.cnvOpt.titleProp.ptr()))
-               title.copy(objs[i]->getProperties()->at(rp.cnvOpt.titleProp.ptr()));
+            if (objs[i]->getProperties().contains(rp.cnvOpt.titleProp.ptr()))
+               title.copy(objs[i]->getProperties().valueBuf(rp.cnvOpt.titleProp.ptr()));
+            
 
-            rp.mols.top()->clone(objs[i]->getBaseMolecule(), 0, 0, 0);
+            if (rp.rOpt.mode == DINGO_MODE::MODE_CDXML) {
+               if (rp.rOpt.cdxml_context.get() != NULL) {
+
+                  RenderCdxmlContext& context = rp.rOpt.cdxml_context.ref();
+                  RenderCdxmlContext::PropertyData& data = context.property_data.push();
+
+                  auto& properties = objs[i]->getProperties();
+                  if (context.propertyNameCaption.size() > 0 && context.propertyValueCaption.size() > 0)
+                  if (properties.contains(context.propertyNameCaption.ptr())) {
+                     if (properties.contains(context.propertyValueCaption.ptr())) {
+                        data.propertyName.readString(properties.at(context.propertyNameCaption.ptr()), true);
+                        data.propertyValue.readString(properties.at(context.propertyValueCaption.ptr()), true);
+                     }
+                  }
+               }
+            
+
+			}
+
+            rp.mols.top()->clone_KeepIndices(objs[i]->getBaseMolecule());
             rp.rmode = RENDER_MOL;
          }
       }
@@ -392,8 +589,9 @@ CEXPORT int indigoRenderGrid (int objects, int* refAtoms, int nColumns, int outp
             else
                rp.rxns.add(new Reaction());
             Array<char>& title = rp.titles.push();
-            if (objs[i]->getProperties()->find(rp.cnvOpt.titleProp.ptr()))
-               title.copy(objs[i]->getProperties()->at(rp.cnvOpt.titleProp.ptr()));
+            if (objs[i]->getProperties().contains(rp.cnvOpt.titleProp.ptr()))
+               title.copy(objs[i]->getProperties().valueBuf(rp.cnvOpt.titleProp.ptr()));
+            
             
             rp.rxns.top()->clone(objs[i]->getBaseReaction(), 0, 0, 0);
             rp.rmode = RENDER_RXN;
@@ -438,6 +636,15 @@ CEXPORT int indigoRenderGrid (int objects, int* refAtoms, int nColumns, int outp
    INDIGO_END(-1)
 }
 
+DINGO_MODE indigoRenderGuessOutputFormat(const char* filename)
+{
+   const char *ext = strrchr(filename, '.');
+   if (ext == NULL)
+      return MODE_NONE;
+
+   return indigoRenderMapOutputFormat(ext + 1);
+}
+
 CEXPORT int indigoRenderToFile (int object, const char *filename)
 {
    int f = indigoWriteFile(filename);
@@ -445,7 +652,11 @@ CEXPORT int indigoRenderToFile (int object, const char *filename)
    if (f == -1)
       return -1;
 
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   DINGO_MODE setMode = rp.rOpt.mode;
+   rp.rOpt.mode = (setMode == MODE_NONE) ? indigoRenderGuessOutputFormat(filename) : setMode;
    int res = indigoRender(object, f);
+   rp.rOpt.mode = setMode;
 
    indigoFree(f);
    return res;
@@ -458,18 +669,22 @@ CEXPORT int indigoRenderGridToFile (int objects, int* refAtoms, int nColumns, co
    if (f == -1)
       return -1;
 
+   RenderParams& rp = indigoRendererGetInstance().renderParams;
+   DINGO_MODE setMode = rp.rOpt.mode;
+   rp.rOpt.mode = (setMode == MODE_NONE) ? indigoRenderGuessOutputFormat(filename) : setMode;
    int res = indigoRenderGrid(objects, refAtoms, nColumns, f);
+   rp.rOpt.mode = setMode;
 
    indigoFree(f);
    return res;
 }
 
-CEXPORT int indigoRenderReset (int render)
+CEXPORT int indigoRenderReset ()
 {
    INDIGO_BEGIN
    {
-      RenderParams& rp = indigoRendererGetInstance().renderParams;
-      rp.clear();
+      IndigoRenderer& rp = indigoRendererGetInstance();
+      rp.init();
       return 1;
    }
    INDIGO_END(-1)
@@ -496,6 +711,10 @@ _IndigoRenderingOptionsHandlersSetter::_IndigoRenderingOptionsHandlersSetter ()
    OsLocker locker(mgr.lock);
 
    mgr.setOptionHandlerInt("render-comment-offset", indigoRenderSetCommentOffset);
+   mgr.setOptionHandlerInt("render-image-width", indigoRenderSetImageWidth);
+   mgr.setOptionHandlerInt("render-image-height", indigoRenderSetImageHeight);
+   mgr.setOptionHandlerInt("render-image-max-width", indigoRenderSetImageMaxWidth);
+   mgr.setOptionHandlerInt("render-image-max-height", indigoRenderSetImageMaxHeight);
 
    mgr.setOptionHandlerString("render-output-format", indigoRenderSetOutputFormat);
    mgr.setOptionHandlerString("render-label-mode", indigoRenderSetLabelMode);
@@ -504,6 +723,7 @@ _IndigoRenderingOptionsHandlersSetter::_IndigoRenderingOptionsHandlersSetter ()
    mgr.setOptionHandlerString("render-stereo-style", indigoRenderSetStereoStyle);
    mgr.setOptionHandlerString("render-catalysts-placement", indigoRenderSetCatalystsPlacement);
    mgr.setOptionHandlerString("render-superatom-mode", indigoRenderSetSuperatomMode);
+   mgr.setOptionHandlerString("render-atom-color-property", indigoRenderSetAtomColorProperty);
 
    mgr.setOptionHandlerBool("render-coloring", indigoRenderSetColoring);
    mgr.setOptionHandlerBool("render-valences-visible", indigoRenderSetValencesVisible);
@@ -515,11 +735,14 @@ _IndigoRenderingOptionsHandlersSetter::_IndigoRenderingOptionsHandlersSetter ()
    mgr.setOptionHandlerBool("render-center-double-bond-when-stereo-adjacent", indigoRenderSetCenterDoubleBondWhenStereoAdjacent);
    mgr.setOptionHandlerBool("render-implicit-hydrogens-visible", indigoRenderSetImplicitHydrogenVisible);
    mgr.setOptionHandlerBool("render-highlighted-labels-visible", indigoRenderSetHighlightedLabelsVisible);
+   mgr.setOptionHandlerBool("render-bold-bond-detection", indigoRenderSetBoldBondDetection);
 
    mgr.setOptionHandlerFloat("render-bond-length", indigoRenderSetBondLength);
    mgr.setOptionHandlerFloat("render-relative-thickness", indigoRenderSetRelativeThickness);
+   mgr.setOptionHandlerFloat("render-bond-line-width", indigoRenderSetBondLineWidth);
    mgr.setOptionHandlerFloat("render-comment-font-size", indigoRenderSetCommentFontSize);
-   mgr.setOptionHandlerFloat("render-comment-alignment", indigoRenderSetCommentAlignment);
+   mgr.setOptionHandlerString("render-comment-alignment", indigoRenderSetCommentAlignment);
+   mgr.setOptionHandlerFloat("render-comment-spacing", indigoRenderSetCommentSpacing);
 
    mgr.setOptionHandlerColor("render-background-color", indigoRenderSetBackgroundColor);
    mgr.setOptionHandlerColor("render-base-color", indigoRenderSetBaseColor);
@@ -533,10 +756,27 @@ _IndigoRenderingOptionsHandlersSetter::_IndigoRenderingOptionsHandlersSetter ()
    mgr.setOptionHandlerXY("render-margins", indigoRenderSetMargins);
 
    mgr.setOptionHandlerXY("render-grid-margins", indigoRenderSetGridMargins);
-   mgr.setOptionHandlerFloat("render-grid-title-alignment", indigoRenderSetTitleAlignment);
+   mgr.setOptionHandlerFloat("render-grid-title-spacing", indigoRenderSetTitleSpacing);
+   mgr.setOptionHandlerString("render-grid-title-alignment", indigoRenderSetTitleAlignment);
    mgr.setOptionHandlerFloat("render-grid-title-font-size", indigoRenderSetTitleFontSize);
    mgr.setOptionHandlerString("render-grid-title-property", indigoRenderSetGridTitleProperty);
    mgr.setOptionHandlerInt("render-grid-title-offset", indigoRenderSetTitleOffset);
+   
+
+   mgr.setOptionHandlerBool("render-cdxml-properties-enabled", indigoRenderSetCdxmlPropertiesEnabled);
+   mgr.setOptionHandlerString("render-cdxml-properties-fonttable", indigoRenderSetCdxmlPropertiesFontTable);
+   mgr.setOptionHandlerString("render-cdxml-properties-colortable", indigoRenderSetCdxmlPropertiesColorTable);
+   mgr.setOptionHandlerString("render-cdxml-properties-name-property", indigoRenderSetCdxmlPropertiesNameProperty);
+   mgr.setOptionHandlerString("render-cdxml-properties-value-property", indigoRenderSetCdxmlPropertiesValueProperty);
+   mgr.setOptionHandlerString("render-cdxml-properties-key-alignment", indigoRenderSetCdxmlPropertiesKeyAlignment);
+   mgr.setOptionHandlerFloat("render-cdxml-properties-size", indigoRenderSetCdxmlPropertiesSize);
+   mgr.setOptionHandlerString("render-cdxml-title-font", indigoRenderSetCdxmlTitleFont);
+   mgr.setOptionHandlerString("render-cdxml-title-face", indigoRenderSetCdxmlTitleFace);
+
+
+
+   
+
 }
 
 _IndigoRenderingOptionsHandlersSetter _indigo_rendering_options_handlers_setter;

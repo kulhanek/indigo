@@ -9,9 +9,9 @@ using System.Data.Sql;
 [assembly: AssemblyTitle("Bingo")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("GGA Software Services LLC")]
+[assembly: AssemblyCompany("EPAM Systems")]
 [assembly: AssemblyProduct("Bingo")]
-[assembly: AssemblyCopyright("Copyright © GGA Software Services LLC 2010")]
+[assembly: AssemblyCopyright("Copyright © EPAM Systems 2010-2013")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
@@ -27,5 +27,5 @@ using System.Data.Sql;
 //
 // You can specify all the values or you can default the Revision and Build Numbers
 // by using the '*' as shown below:
-[assembly: AssemblyVersion("1.6.*")]
+[assembly: AssemblyVersion("1.7.*")]
 

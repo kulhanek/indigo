@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2011 GGA Software Services LLC
+ * Copyright (C) 2011 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -24,21 +24,18 @@
 #include "base_cpp/crc32.h"
 #include "base_cpp/output.h"
 
+IMPL_ERROR(RingoExact, "Ringo exact");
+
 RingoExact::RingoExact (BingoContext &context) :
 _context(context)
 {
    _flags = 0;
-   treat_x_as_pseudoatom = false;
-   ignore_closing_bond_direction_mismatch = false;
 }
 
 void RingoExact::loadQuery (Scanner &scanner)
 {
    ReactionAutoLoader loader(scanner);
-
-   loader.treat_x_as_pseudoatom = treat_x_as_pseudoatom;
-   loader.ignore_closing_bond_direction_mismatch =
-           ignore_closing_bond_direction_mismatch;
+   _context.setLoaderSettings(loader);
    loader.loadReaction(_query);
    Reaction::checkForConsistency(_query);
 
@@ -184,9 +181,7 @@ void RingoExact::loadTarget (Scanner &scanner)
 {
    ReactionAutoLoader loader(scanner);
 
-   loader.treat_x_as_pseudoatom = treat_x_as_pseudoatom;
-   loader.ignore_closing_bond_direction_mismatch =
-           ignore_closing_bond_direction_mismatch;
+   _context.setLoaderSettings(loader);
    loader.loadReaction(_target);
    Reaction::checkForConsistency(_target);
    _initTarget(_target, false);
@@ -218,7 +213,7 @@ bool RingoExact::matchLoadedTarget ()
 void RingoExact::_initQuery (Reaction &query)
 {
    int i, j;
-   query.aromatize();
+   query.aromatize(AromaticityOptions::BASIC);
 
    if (_flags & MoleculeExactMatcher::CONDITION_STEREO)
    {
@@ -235,7 +230,7 @@ void RingoExact::_initQuery (Reaction &query)
 void RingoExact::_initTarget (Reaction &target, bool from_database)
 {
    if (!from_database)
-      target.aromatize();
+      target.aromatize(AromaticityOptions::BASIC);
 }
 
 bool RingoExact::matchBinary (Scanner &scanner)

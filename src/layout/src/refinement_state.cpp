@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -16,10 +16,15 @@
 
 using namespace indigo;
 
+IMPL_ERROR(RefinementState, "refinement");
+
+CP_DEF(RefinementState);
+
 RefinementState::RefinementState (MoleculeLayoutGraph &graph) :
 dist(0.f),
 energy(0),
 height(0.f),
+CP_INIT,
 TL_CP_GET(layout),
 _graph(graph)
 {
@@ -221,5 +226,15 @@ void RefinementState::rotateLayout (const RefinementState &state, int v_idx, flo
 
       layout[i].sum(d, v);
    }
+}
+
+bool RefinementState::is_small_cycle() {
+    if (_graph.vertexCount() >= 10) return false;
+
+    bool answ = true;
+    for (int v = _graph.vertexBegin(); v != _graph.vertexEnd(); v++)
+        if (_graph.getVertex(v).degree() != 2) answ = false;
+
+    return answ;
 }
 

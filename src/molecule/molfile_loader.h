@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -20,6 +20,7 @@
 #include "base_cpp/tlscont.h"
 #include "molecule/base_molecule.h"
 #include "molecule/query_molecule.h"
+#include "molecule/molecule_stereocenter_options.h"
 
 namespace indigo {
 
@@ -35,7 +36,7 @@ class QueryMolecule;
 class DLLEXPORT MolfileLoader
 {
 public:
-   DEF_ERROR("molfile loader");
+   DECL_ERROR;
 
    MolfileLoader (Scanner &scanner);
 
@@ -52,7 +53,7 @@ public:
    Array<int> * reaction_atom_exact_change;
    Array<int> * reaction_bond_reacting_center;
 
-   bool ignore_stereocenter_errors;
+   StereocentersOptions stereochemistry_options;
    bool treat_x_as_pseudoatom; // normally 'X' means 'any halogen'
    bool skip_3d_chirality; // do not compute chirality from 3D coordinates
 
@@ -66,6 +67,7 @@ protected:
    Scanner &_scanner;
    bool     _rgfile;
 
+   CP_DECL;
    TL_CP_DECL(Array<int>, _stereo_care_atoms);
    TL_CP_DECL(Array<int>, _stereo_care_bonds);
    TL_CP_DECL(Array<int>, _stereocenter_types);
@@ -82,6 +84,7 @@ protected:
       _ATOM_LIST,
       _ATOM_NOTLIST,
       _ATOM_PSEUDO,
+      _ATOM_TEMPLATE,
       _ATOM_ELEMENT
    };
 
@@ -90,7 +93,9 @@ protected:
       _BOND_SINGLE_OR_DOUBLE = 5,
       _BOND_SINGLE_OR_AROMATIC = 6,
       _BOND_DOUBLE_OR_AROMATIC = 7,
-      _BOND_ANY = 8
+      _BOND_ANY = 8,
+      _BOND_COORDINATION = 9,
+      _BOND_HYDROGEN = 10
    };
 
    enum
@@ -103,6 +108,11 @@ protected:
       _SGROUP_TYPE_OTHER // one of unsupported types
    };
 
+   enum
+   {
+      _BRKTYP_SQUARE = 0,
+      _BRKTYP_ROUND
+   };
 
    TL_CP_DECL(Array<int>, _atom_types);
    TL_CP_DECL(Array<int>, _hcount);
@@ -124,11 +134,13 @@ protected:
    void _readCtab3000 ();
    void _readSGroup3000 (const char *str);
    void _readRGroups3000 ();
-   void _readSGroupDisplay (Scanner &scanner, BaseMolecule::DataSGroup &dsg);
+   void _readTGroups3000 ();
+   void _readSGroupDisplay (Scanner &scanner, DataSGroup &dsg);
    void _readCollectionBlock3000 ();
    void _readSGroupsBlock3000 ();
    void _preparePseudoAtomLabel (Array<char> &pseudo);
    void _readMultiString (Array<char> &str);
+   void _readStringInQuotes (Scanner &scanner, Array<char> *str);
    void _init ();
    void _appendQueryAtom (const char *atom_label, AutoPtr<QueryMolecule::Atom> &atom);
 

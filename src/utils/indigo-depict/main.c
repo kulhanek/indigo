@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -43,6 +43,8 @@ void usage (void)
            "   Horizontal and vertical margins, in pixels. No margins by default\n"
            "-thickness <number>\n"
            "   Set relative thickness factor. Default is 1.0\n"
+           "-linewidth <number>\n"
+           "   Set bond line width factor. Default is 1.0\n"
            "-label <none|hetero|terminal-hetero|all>\n"
            "   Set atom label display mode (default is terminal-hetero)\n"
            "-hydro <on|off>\n"
@@ -55,7 +57,9 @@ void usage (void)
            "   Center double bonds which have an adjacent stereo bond (disabled by default)\n"
            "-query\n"
            "   Treat the input as a query molecule or reaction (disabled by default)\n"
-           "-idfield <string>\n"
+           "-smarts\n"
+           "   Treat the input as a SMARTS query molecule or reaction (disabled by default)\n"
+           "-id <string>\n"
            "   SDF/RDF field to be put in place of '%%s' in the names of saved files\n"
            "   (default is molecule/reaction number)\n"
            "-catalysts [above|above-and-below]\n"
@@ -101,7 +105,7 @@ void usage (void)
            "\n"
            "Examples:\n"
            "   indigo-depict infile.mol outfile.png -coloring off -arom\n"
-           "   indigo-depict database.sdf molecule_%%s.png -idfield cdbregno -thickness 1.1\n"
+           "   indigo-depict database.sdf molecule_%%s.png -id cdbregno -thickness 1.1\n"
            "   indigo-depict database.smi database.sdf\n"
            "   indigo-depict - \"CC.[O-][*-]([O-])=O\" query.png -query\n"
            "   indigo-depict - \"OCO>>CC(C)N\" reaction.rxn\n"
@@ -259,7 +263,7 @@ typedef struct tagParams {
    const char *id;
    const char *string_to_load;
    const char *file_to_load;
-   int hydro_set, query_set;
+   int hydro_set, query_set, smarts_set;
    int aromatization;
    int out_ext;
    const char *comment;
@@ -424,6 +428,23 @@ int parseParams (Params* p, int argc, char *argv[]) {
          }
          indigoSetOptionFloat("render-relative-thickness", rt);
       }
+      else if (strcmp(argv[i], "-linewidth") == 0)
+      {
+         float rt;
+
+         if (++i == argc)
+         {
+            fprintf(stderr, "expecting number after -linewidth\n");
+            return -1;
+         }
+
+         if (sscanf(argv[i], "%f", &rt) != 1 || rt < 0)
+         {
+            fprintf(stderr, "%s is not a valid line width value\n", argv[i]);
+            return -1;
+         }
+         indigoSetOptionFloat("render-bond-line-width", rt);
+      }
       else if (strcmp(argv[i], "-bond") == 0)
       {
          if (++i == argc)
@@ -584,6 +605,10 @@ int parseParams (Params* p, int argc, char *argv[]) {
       {
          p->query_set = 1;
       }
+      else if (strcmp(argv[i], "-smarts") == 0)
+      {
+         p->smarts_set = 1;
+      }
       else if (strcmp(argv[i], "-id") == 0)
       {
          if (++i == argc)
@@ -718,15 +743,10 @@ int parseParams (Params* p, int argc, char *argv[]) {
    if (p->bond > 0)
       indigoSetOptionFloat("render-bond-length", (float)p->bond);
    
-   if ((p->width > 0 && p->height <= 0) ||
-       (p->width <= 0 && p->height > 0))
-   {
-      fprintf(stderr, "-w and -h should be specified both or neither\n");
-      return -1;
-   }
-
-   if (p->width > 0 && p->height > 0)
-      indigoSetOptionXY("render-image-size", p->width, p->height);
+   if (p->width > 0)
+      indigoSetOptionInt("render-image-width", p->width);
+   if (p->height > 0)
+      indigoSetOptionInt("render-image-height", p->height);
 
    if (p->hydro_set && p->query_set)
    {
@@ -775,7 +795,8 @@ int main (int argc, char *argv[])
       p.string_to_load = 
       p.file_to_load = NULL;
    p.hydro_set = 
-      p.query_set = 0;
+      p.query_set = 
+     p.smarts_set = 0;
    p.aromatization = NONE;
    p.comment_field = NULL;
    p.comment = NULL;
@@ -821,7 +842,13 @@ int main (int argc, char *argv[])
       if (p.out_ext == OEXT_RXN)
          ERROR("reaction output specified for molecule input\n");
 
-      obj = (p.query_set) ? indigoLoadQueryMolecule(reader) : indigoLoadMolecule(reader);
+      if (p.smarts_set)
+         obj = indigoLoadSmarts(reader);
+      else if (p.query_set)
+         obj = indigoLoadQueryMolecule(reader);
+      else
+         obj = indigoLoadMolecule(reader);
+
       _prepare(obj, p.aromatization);
       if (p.action == ACTION_LAYOUT) {
          indigoLayout(obj);
@@ -840,7 +867,12 @@ int main (int argc, char *argv[])
       if (p.out_ext == OEXT_MOL)
          ERROR("molecule output specified for reaction input\n"); 
 
-      obj = p.query_set ? indigoLoadQueryReaction(reader) : indigoLoadReaction(reader);
+      if (p.smarts_set)
+         obj = indigoLoadReactionSmarts(reader);
+      else if (p.query_set)
+         obj = indigoLoadQueryReaction(reader);
+      else
+         obj = indigoLoadReaction(reader);
       _prepare(obj, p.aromatization);
       if (p.action == ACTION_LAYOUT) {
          indigoLayout(obj);

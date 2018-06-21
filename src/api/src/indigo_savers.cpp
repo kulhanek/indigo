@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -24,8 +24,10 @@
 #include "molecule/molecule_cml_saver.h"
 #include "molecule/molfile_saver.h"
 #include "molecule/smiles_saver.h"
+#include "molecule/canonical_smiles_saver.h"
 #include "reaction/rxnfile_saver.h"
 #include "reaction/rsmiles_saver.h"
+#include "reaction/canonical_rsmiles_saver.h"
 #include "reaction/reaction_cml_saver.h"
 
 #include <time.h>
@@ -107,14 +109,11 @@ void IndigoSdfSaver::append (Output &out, IndigoObject &obj)
 {
    appendMolfile(out, obj);
 
-   RedBlackStringObjMap< Array<char> > *props = obj.getProperties();
-   if (props != 0)
-   {
-      int i;
+   auto& props = obj.getProperties();
 
-      for (i = props->begin(); i != props->end(); i = props->next(i))
-         out.printf(">  <%s>\n%s\n\n", props->key(i), props->value(i).ptr());
-   }
+      for (auto i : props.elements()) {
+         out.printf(">  <%s>\n%s\n\n", props.key(i), props.value(i));
+      }
 
    out.printfCR("$$$$");
    out.flush();
@@ -213,6 +212,45 @@ CEXPORT int indigoSmilesAppend (int output, int item)
       return 1;
    }
    INDIGO_END(-1)
+}
+
+//
+// IndigoCanonicalSmilesSaver
+//
+
+void IndigoCanonicalSmilesSaver::generateSmiles(IndigoObject &obj, Array<char> &out_buffer)
+{
+   ArrayOutput output(out_buffer);
+   if (IndigoBaseMolecule::is(obj))
+   {
+      BaseMolecule &mol = obj.getBaseMolecule();
+
+      CanonicalSmilesSaver saver(output);
+
+      if (mol.isQueryMolecule())
+         saver.saveQueryMolecule(mol.asQueryMolecule());
+      else
+         saver.saveMolecule(mol.asMolecule());
+   }
+   else if (IndigoBaseReaction::is(obj))
+   {
+      BaseReaction &rxn = obj.getBaseReaction();
+
+      CanonicalRSmilesSaver saver(output);
+
+      if (rxn.isQueryReaction())
+         saver.saveQueryReaction(rxn.asQueryReaction());
+      else
+         saver.saveReaction(rxn.asReaction());
+   }
+   else
+      throw IndigoError("%s can not be converted to SMILES", obj.debugInfo());
+   out_buffer.push(0);
+}
+
+const char * IndigoCanonicalSmilesSaver::debugInfo()
+{
+   return "<smiles saver>";
 }
 
 //
@@ -330,14 +368,10 @@ void IndigoRdfSaver::append (Output &out, IndigoObject &obj)
    else
       throw IndigoError("%s can not be saved to RDF", obj.debugInfo());
 
-   RedBlackStringObjMap< Array<char> > *props = obj.getProperties();
-      
-   if (props != 0)
-   {
-      int i;
+   auto& props = obj.getProperties();
 
-      for (i = props->begin(); i != props->end(); i = props->next(i))
-         out.printf("$DTYPE %s\n$DATUM %s\n", props->key(i), props->value(i).ptr());
+   for (auto i : props.elements()) {
+      out.printf("$DTYPE %s\n$DATUM %s\n", props.key(i), props.value(i));
    }
 }
 

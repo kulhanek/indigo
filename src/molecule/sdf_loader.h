@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -17,6 +17,7 @@
 
 #include "base_cpp/tlscont.h"
 #include "base_cpp/red_black.h"
+#include "base_cpp/properties_map.h"
 
 namespace indigo {
 
@@ -24,6 +25,10 @@ class Scanner;
 
 class SdfLoader
 {
+	/*
+	 * Max data size is 10 Mb
+	 */
+	enum { MAX_DATA_SIZE = 10485760 };
 public:
    SdfLoader (Scanner &scanner);
    ~SdfLoader ();
@@ -37,10 +42,11 @@ public:
 
    void readAt (int index);
 
+   CP_DECL;
    TL_CP_DECL(Array<char>, data);
-   TL_CP_DECL(RedBlackStringObjMap< Array<char> >, properties);
+   TL_CP_DECL(PropertiesMap, properties);
 
-   DEF_ERROR("SDF loader");
+   DECL_ERROR;
 
 protected:
    Scanner *_scanner;

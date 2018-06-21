@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -35,14 +35,16 @@ struct RefinementState
    void rotateBranch  (const Filter &branch, const RefinementState &state, int v_idx, float angle);
    void stretchBranch (const Filter &branch, const RefinementState &state, int v1, int v2, int d);
    void rotateLayout  (const RefinementState &state, int v_idx, float angle);
+   bool is_small_cycle();
 
    float dist;
    double energy;
    float height;
+   CP_DECL;
    TL_CP_DECL(Array<Vec2f>, layout);
 
+   DECL_ERROR;
 private:
-   DEF_ERROR("refinement");
 
    MoleculeLayoutGraph &_graph;
 };

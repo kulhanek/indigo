@@ -1,3 +1,6 @@
+#include "bingo_pg_fix_pre.h"
+#include "float.h"
+
 extern "C" {
 #include "postgres.h"
 #include "fmgr.h"
@@ -12,14 +15,14 @@ extern "C" {
 #include "utils/tuplesort.h"
 #include "utils/array.h"
 #include "catalog/pg_type.h"
+#include "utils/rel.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
 }
 
-#ifdef qsort
-#undef qsort
-#endif
+#include "bingo_pg_fix_post.h"
+
 #include "bingo_postgres.h"
 #include "bingo_pg_common.h"
 #include "pg_bingo_context.h"
@@ -27,8 +30,7 @@ extern "C" {
 
 
 extern "C" {
-PG_FUNCTION_INFO_V1(bingo_options);
-PGDLLEXPORT Datum bingo_options(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(bingo_options);
 }
 
 
@@ -127,7 +129,56 @@ static relopt_int intRelOpts[] =
 			RELOPT_KIND_BINGO
 		}, -1, 0, 1
 	},
-	{
+   {
+      {
+         "ignore_stereocenter_errors",
+         "",
+         RELOPT_KIND_BINGO
+      }, -1, 0, 1
+   },
+   {
+      {
+         "stereochemistry_bidirectional_mode",
+         "",
+         RELOPT_KIND_BINGO
+      }, -1, 0, 1
+   },
+   {
+      {
+         "stereochemistry_detect_haworth_projection",
+         "",
+         RELOPT_KIND_BINGO
+      }, -1, 0, 1
+   },
+   {
+      {
+         "ignore_cistrans_errors",
+         "",
+         RELOPT_KIND_BINGO
+      }, -1, 0, 1
+   },
+   {
+      {
+         "allow_non_unique_dearomatization",
+         "",
+         RELOPT_KIND_BINGO
+      }, -1, 0, 1
+   },
+   {
+      {
+         "zero_unknown_aromatic_hydrogens",
+         "",
+         RELOPT_KIND_BINGO
+      }, -1, 0, 1
+   },
+   {
+      {
+         "reject_invalid_structures",
+         "",
+         RELOPT_KIND_BINGO
+      }, -1, 0, 1
+   },
+   {
 		{
 			"fp_ord_size",
 			"",
@@ -516,6 +567,20 @@ bingo_reloptions(Datum reloptions, bool validate) {
               offsetof(BingoStdRdOptions, index_parameters) + offsetof(BingoIndexOptions, treat_x_as_pseudoatom)},
       {"ignore_closing_bond_direction_mismatch", RELOPT_TYPE_INT,
               offsetof(BingoStdRdOptions, index_parameters) + offsetof(BingoIndexOptions, ignore_closing_bond_direction_mismatch)},
+      {"ignore_stereocenter_errors", RELOPT_TYPE_INT,
+              offsetof(BingoStdRdOptions, index_parameters) + offsetof(BingoIndexOptions, ignore_stereocenter_errors)},
+      {"stereochemistry_bidirectional_mode", RELOPT_TYPE_INT,
+              offsetof(BingoStdRdOptions, index_parameters) + offsetof(BingoIndexOptions, stereochemistry_bidirectional_mode)},
+      {"stereochemistry_detect_haworth_projection", RELOPT_TYPE_INT,
+              offsetof(BingoStdRdOptions, index_parameters) + offsetof(BingoIndexOptions, stereochemistry_detect_haworth_projection)},
+      {"ignore_cistrans_errors", RELOPT_TYPE_INT,
+              offsetof(BingoStdRdOptions, index_parameters) + offsetof(BingoIndexOptions, ignore_cistrans_errors)},
+      {"allow_non_unique_dearomatization", RELOPT_TYPE_INT,
+              offsetof(BingoStdRdOptions, index_parameters) + offsetof(BingoIndexOptions, allow_non_unique_dearomatization)},
+      {"zero_unknown_aromatic_hydrogens", RELOPT_TYPE_INT,
+              offsetof(BingoStdRdOptions, index_parameters) + offsetof(BingoIndexOptions, zero_unknown_aromatic_hydrogens)},
+      {"reject_invalid_structures", RELOPT_TYPE_INT,
+              offsetof(BingoStdRdOptions, index_parameters) + offsetof(BingoIndexOptions, reject_invalid_structures)},
       {"fp_ord_size", RELOPT_TYPE_INT,
               offsetof(BingoStdRdOptions, index_parameters) + offsetof(BingoIndexOptions, fp_ord_size)},
       {"fp_any_size", RELOPT_TYPE_INT,

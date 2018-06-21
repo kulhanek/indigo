@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -16,7 +16,6 @@
 
 #include "base_cpp/profiling.h"
 #include "molecule/molfile_loader.h"
-#include "molecule/molfile_loader.h"
 #include "molecule/smiles_saver.h"
 #include "molecule/cmf_saver.h"
 #include "reaction/rsmiles_saver.h"
@@ -27,6 +26,7 @@
 #include "reaction/crf_saver.h"
 #include "reaction/icr_saver.h"
 #include "reaction/reaction_cml_saver.h"
+#include "reaction/reaction_fingerprint.h"
 
 using namespace indigo::bingo_core;
 
@@ -52,12 +52,30 @@ CEXPORT int ringoIndexProcessSingleRecord ()
             self.ringo_index = self.single_ringo_index.get();
             self.ringo_index->prepare(scanner, output, NULL);
          }
-         catch (CmfSaver::Error &e) { self.warning.readString(e.message(), true); return -1; }
-         catch (CrfSaver::Error &e) { self.warning.readString(e.message(), true); return -1; }
+         catch (CmfSaver::Error &e)
+         { 
+            if (self.bingo_context->reject_invalid_structures)
+               throw;
+            self.warning.readString(e.message(), true);
+            return 0;
+         }
+         catch (CrfSaver::Error &e)
+         {
+            if (self.bingo_context->reject_invalid_structures)
+               throw;
+            self.warning.readString(e.message(), true);
+            return 0;
+         }
       }
-      CATCH_READ_TARGET_RXN(self.warning.readString(e.message(), true); return -1;);
+      CATCH_READ_TARGET_RXN({
+         if (self.bingo_context->reject_invalid_structures)
+            throw;
+
+         self.warning.readString(e.message(), true);
+         return 0;
+      });
    }
-   BINGO_END(1, 0)
+   BINGO_END(1, -1)
 }
 
 CEXPORT int ringoIndexReadPreparedReaction (int *id,
@@ -86,6 +104,9 @@ CEXPORT int ringoIndexReadPreparedReaction (int *id,
 
 void _ringoCheckPseudoAndCBDM (BingoCore &self)
 {
+   if (self.bingo_context == 0)
+      throw BingoError("context not set");
+    
    if (self.ringo_context == 0)
       throw BingoError("context not set");
 
@@ -128,11 +149,10 @@ CEXPORT int ringoSetupMatch (const char *search_type, const char *query, const c
             self.ringo_search_type = BingoCore::_EXACT;
             return 1;
          }
-         else
-         {
-            self.ringo_search_type = BingoCore::_UNDEF;
-            throw BingoError("Unknown search type %s", search_type);
-         }
+         self.ringo_search_type = BingoCore::_UNDEF;
+         throw BingoError("Unknown search type '%s' or options string '%s'", 
+            search_type, options);
+
       }
       CATCH_READ_TARGET_RXN(self.error.readString(e.message(), 1); return -1;);
    }
@@ -225,10 +245,7 @@ CEXPORT const char * ringoRSMILES (const char *target_buf, int target_buf_len)
       QS_DEF(Reaction, target);
 
       ReactionAutoLoader loader(scanner);
-
-      loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      loader.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
+      self.bingo_context->setLoaderSettings(loader);
       loader.loadReaction(target);
 
       ArrayOutput out(self.buffer);
@@ -253,10 +270,7 @@ CEXPORT const char * ringoRxnfile (const char *reaction, int reaction_len)
       QS_DEF(Reaction, target);
 
       ReactionAutoLoader loader(scanner);
-
-      loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      loader.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
+      self.bingo_context->setLoaderSettings(loader);
       loader.loadReaction(target);
 
       ArrayOutput out(self.buffer);
@@ -282,10 +296,7 @@ CEXPORT const char * ringoRCML (const char *reaction, int reaction_len)
       QS_DEF(Reaction, target);
 
       ReactionAutoLoader loader(scanner);
-
-      loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      loader.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
+      self.bingo_context->setLoaderSettings(loader);
       loader.loadReaction(target);
 
       ArrayOutput out(self.buffer);
@@ -309,9 +320,6 @@ CEXPORT const char * ringoAAM (const char *reaction, int reaction_len, const cha
 
       BufferScanner reaction_scanner(reaction, reaction_len);
       self.ringo_context->ringoAAM.loadReaction(reaction_scanner);
-      self.ringo_context->ringoAAM.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      self.ringo_context->ringoAAM.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
 
       self.ringo_context->ringoAAM.getResult(self.buffer);
       self.buffer.push(0);
@@ -332,9 +340,7 @@ CEXPORT const char * ringoCheckReaction (const char *reaction, int reaction_len)
 
          BufferScanner reaction_scanner(reaction, reaction_len);
          ReactionAutoLoader loader(reaction_scanner);
-         loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-         loader.ignore_closing_bond_direction_mismatch =
-            self.bingo_context->ignore_closing_bond_direction_mismatch;
+         self.bingo_context->setLoaderSettings(loader);
          loader.loadReaction(rxn);
          Reaction::checkForConsistency(rxn);
       }
@@ -424,10 +430,7 @@ CEXPORT const char* ringoICR (const char* reaction, int reaction_len, bool save_
       QS_DEF(Reaction, target);
 
       ReactionAutoLoader loader(scanner);
-
-      loader.treat_x_as_pseudoatom = self.bingo_context->treat_x_as_pseudoatom;
-      loader.ignore_closing_bond_direction_mismatch =
-         self.bingo_context->ignore_closing_bond_direction_mismatch;
+      self.bingo_context->setLoaderSettings(loader);
       loader.loadReaction(target);
 
       ArrayOutput out(self.buffer);
@@ -465,4 +468,37 @@ CEXPORT int ringoGetHash (bool for_index, dword *hash)
       }
    }
    BINGO_END(-2, -2)
+}
+
+CEXPORT const char* ringoFingerprint(const char* reaction, int reaction_len, const char* options, int *out_len)
+{
+   BINGO_BEGIN
+   {
+      _ringoCheckPseudoAndCBDM(self);
+
+      if (!self.bingo_context->fp_parameters_ready)
+         throw BingoError("Fingerprint settings not ready");
+
+      BufferScanner scanner(reaction, reaction_len);
+
+      QS_DEF(Reaction, target);
+
+      ReactionAutoLoader loader(scanner);
+      self.bingo_context->setLoaderSettings(loader);
+      loader.loadReaction(target);
+
+      ReactionFingerprintBuilder builder(target, self.bingo_context->fp_parameters);
+      builder.parseFingerprintType(options, false);
+
+      builder.process();
+
+      const char* buf = (const char*)builder.get();
+      int buf_len = self.bingo_context->fp_parameters.fingerprintSizeExtOrdSim() * 2;
+
+      self.buffer.copy(buf, buf_len);
+
+      *out_len = self.buffer.size();
+      return self.buffer.ptr();
+   }
+   BINGO_END(0, 0)
 }

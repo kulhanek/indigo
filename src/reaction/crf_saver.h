@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -18,13 +18,18 @@
 #include "lzw/lzw_encoder.h"
 #include "base_cpp/obj.h"
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
+
 namespace indigo {
 
 class Molecule;
 class Reaction;
 class LzwDict;
 
-class CrfSaver
+class DLLEXPORT CrfSaver
 {
 public:
    // external dictionary, internal encoder
@@ -39,14 +44,18 @@ public:
 
    bool save_bond_dirs;
    bool save_highlighting;
+   bool save_mapping;
 
-   DEF_ERROR("CRF saver");
+   DECL_ERROR;
 
 protected:
+
+   void _init ();
 
    void _writeReactionInfo (Reaction &reaction);
    void _writeAam (const int *aam, const Array<int> &sequence);
    void _writeMolecule (Molecule &molecule);
+   void _writeReactionMolecule (Reaction &reaction, int idx);
    
    Output &_output;
    Obj<LzwEncoder> _encoder;
@@ -60,5 +69,9 @@ private:
 };
 
 }
+
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 #endif

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -18,11 +18,16 @@
 #include "base_cpp/exception.h"
 #include "reaction/base_reaction_substructure_matcher.h"
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
+
 namespace indigo {
 
 class Reaction;
 
-class ReactionExactMatcher : public BaseReactionSubstructureMatcher
+class DLLEXPORT ReactionExactMatcher : public BaseReactionSubstructureMatcher
 {
 public:
 
@@ -39,7 +44,7 @@ public:
 
    dword flags;
 
-   DEF_ERROR("reaction exact matcher");
+   DECL_ERROR;
 
 protected:
    Reaction &_query;

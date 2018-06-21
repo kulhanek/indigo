@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 2.8)
 project(BingoSqlServerSolution)
 
 set(BINGO "YES")
+set(BINGO_SQLSERVER "YES")
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/../../common/cmake/)
 set(Bingo_SOURCE_DIR ../../bingo/)
 set(BingoSqlServer_SOURCE_DIR ../../bingo/sqlserver)
@@ -37,6 +38,8 @@ add_subdirectory(../../reaction "${CMAKE_CURRENT_BINARY_DIR}/reaction")
 add_subdirectory(../../layout "${CMAKE_CURRENT_BINARY_DIR}/layout")
 add_subdirectory(../../bingo/bingo-core "${CMAKE_CURRENT_BINARY_DIR}/bingo-core")
 get_directory_property(BingoCore_HEADERS_DIR DIRECTORY ../../bingo/bingo-core DEFINITION BingoCore_HEADERS_DIR)
+
+add_subdirectory(../../third_party/inchi "${CMAKE_CURRENT_BINARY_DIR}/inchi")
 
 add_subdirectory(../../bingo/bingo-core-c "${CMAKE_CURRENT_BINARY_DIR}/bingo-core-c")
 get_directory_property(BingoCoreC_HEADERS_DIR DIRECTORY ../../bingo/bingo-core-c DEFINITION BingoCoreC_HEADERS_DIR)

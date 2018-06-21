@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -15,9 +15,16 @@
 #ifndef __crc32_h__
 #define __crc32_h__
 
+#include "base_c/defs.h"
+
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
+
 namespace indigo {
 
-class CRC32  
+class DLLEXPORT CRC32  
 {
 public:
    explicit CRC32 ();

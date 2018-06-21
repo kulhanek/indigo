@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -30,9 +30,7 @@ void RingoIndex::prepare (Scanner &rxnfile, Output &output, OsLock *lock_for_exc
    QS_DEF(Reaction, reaction);
       
    ReactionAutoLoader rrd(rxnfile);
-   rrd.treat_x_as_pseudoatom = _context->treat_x_as_pseudoatom;
-   rrd.ignore_closing_bond_direction_mismatch =
-           _context->ignore_closing_bond_direction_mismatch;
+   _context->setLoaderSettings(rrd);
    rrd.loadReaction(reaction);
 
    // Skip all SGroups
@@ -44,7 +42,7 @@ void RingoIndex::prepare (Scanner &rxnfile, Output &output, OsLock *lock_for_exc
    ReactionAutomapper ram(reaction);
    ram.correctReactingCenters(true);
 
-   reaction.aromatize();
+   reaction.aromatize(AromaticityOptions::BASIC);
 
    _hash = RingoExact::calculateHash(reaction);
    {

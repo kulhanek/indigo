@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -28,12 +28,12 @@
 #include "layout/reaction_layout.h"
 #include "reaction/rsmiles_loader.h"
 
+IMPL_ERROR(RingoSubstructure, "reaction substructure");
+
 RingoSubstructure::RingoSubstructure (BingoContext &context) :
 _context(context)
 {
    preserve_bonds_on_highlighting = false;
-   treat_x_as_pseudoatom = false;
-   ignore_closing_bond_direction_mismatch = false;
    _smarts = false;
 }
 
@@ -66,10 +66,7 @@ void RingoSubstructure::loadQuery (Scanner &scanner)
    QS_DEF(QueryReaction, source);
 
    ReactionAutoLoader loader(scanner);
-
-   loader.treat_x_as_pseudoatom = treat_x_as_pseudoatom;
-   loader.ignore_closing_bond_direction_mismatch =
-           ignore_closing_bond_direction_mismatch;
+   _context.setLoaderSettings(loader);
    loader.loadQueryReaction(source);
 
    _initQuery(source, _query_reaction);
@@ -111,7 +108,7 @@ void RingoSubstructure::_initQuery (QueryReaction &query_in, QueryReaction &quer
    ReactionAutomapper ram(query_out);
    ram.correctReactingCenters(true);
 
-   query_out.aromatize();
+   query_out.aromatize(AromaticityOptions::BASIC);
 
    _nei_query_counters.calculate(query_out);
 } 
@@ -151,7 +148,7 @@ void RingoSubstructure::_initTarget (bool from_database)
    {
       ReactionAutomapper ram(_target_reaction);
       ram.correctReactingCenters(true);
-      _target_reaction.aromatize();
+      _target_reaction.aromatize(AromaticityOptions::BASIC);
    }
    _nei_target_counters.calculate(_target_reaction);
 } 
@@ -199,9 +196,7 @@ void RingoSubstructure::loadTarget (Scanner &scanner)
 {
    ReactionAutoLoader loader(scanner);
 
-   loader.treat_x_as_pseudoatom = treat_x_as_pseudoatom;
-   loader.ignore_closing_bond_direction_mismatch =
-           ignore_closing_bond_direction_mismatch;
+   _context.setLoaderSettings(loader);
    loader.loadReaction(_target_reaction);
    _initTarget(false);
 }

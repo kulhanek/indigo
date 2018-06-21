@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -19,9 +19,14 @@ namespace indigo {
 
 #include "base_cpp/array.h"
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
+
 class BaseMolecule;
 
-class GrossFormula
+class DLLEXPORT GrossFormula
 {
 public:
    static void collect (BaseMolecule &molecule, Array<int> &gross);
@@ -45,6 +50,7 @@ protected:
                           int (*cmp)(_ElemCounter &, _ElemCounter &, void *));
    static int _cmp      (_ElemCounter &ec1, _ElemCounter &ec2, void *context);
    static int _cmp_hill (_ElemCounter &ec1, _ElemCounter &ec2, void *context);
+   static int _cmp_hill_no_carbon (_ElemCounter &ec1, _ElemCounter &ec2, void *context);
 };
 
 }

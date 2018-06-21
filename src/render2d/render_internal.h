@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -32,7 +32,7 @@ public:
    void setReactionComponentProperties (const Array<int>* aam, const Array<int>* reactingCenters, const Array<int>* inversions);
    void setQueryReactionComponentProperties (const Array<int>* exactChanges);
 
-   DEF_ERROR("molecule render internal");
+   DECL_ERROR;
 private:
    enum STEREOGROUPS_MODE {STEREOGROUPS_SHOW, STEREOGROUPS_HIDE};
    struct LocalOptions {
@@ -72,10 +72,10 @@ private:
    void _hydroPosCorrectRepulse ();
    void _initAtomData();
    void _initRGroups();
-   void _loadBrackets(SGroup& sg, const Array<Vec2f[2]>& coord, bool transformCoordinates);
-   void _placeBrackets(SGroup& sg, const Array<int>& atoms);
-   void _positionIndex(SGroup& sg, int ti, bool lower);
-   void _loadBracketsAuto(const BaseMolecule::SGroup& group, SGroup& sg);
+   void _loadBrackets(Sgroup& sg, const Array<Vec2f[2]>& coord, bool transformCoordinates);
+   void _placeBrackets(Sgroup& sg, const Array<int>& atoms);
+   void _positionIndex(Sgroup& sg, int ti, bool lower);
+   void _loadBracketsAuto(const SGroup& group, Sgroup& sg);
    void _initDataSGroups();
    void _initSruGroups();
    void _initMulGroups();
@@ -99,6 +99,7 @@ private:
    void _findCenteredCase();
    void _initBondData();
    void _initBondEndData();
+   void _initBoldStereoBonds();
    void _extendRenderItems();
    BondEnd& _getBondEnd(int aid, int nei);
    int _getBondEndIdx (int aid, int nei);
@@ -114,10 +115,10 @@ private:
    void _prepareAAM ();
    int _pushTextItem (RenderItem::TYPE type, int color, bool highlighted);
    int _pushTextItem (AtomDesc& ad, RenderItem::TYPE type, int color, bool highlighted);
-   int _pushTextItem (SGroup& sg, RenderItem::TYPE ritype, int color = CWC_BASE);
+   int _pushTextItem (Sgroup& sg, RenderItem::TYPE ritype, int color = CWC_BASE);
    int _pushGraphItem (RenderItem::TYPE type, int color, bool highlighted);
    int _pushGraphItem (AtomDesc& ad, RenderItem::TYPE type, int color, bool highlighted);
-   int _pushGraphItem (SGroup& ad, RenderItem::TYPE type, int color = CWC_BASE);
+   int _pushGraphItem (Sgroup& ad, RenderItem::TYPE type, int color = CWC_BASE);
    const char* _valenceText (const int valence);
    float _ctghalf (float cs);
    void _drawBond (int b);
@@ -126,6 +127,9 @@ private:
    float _doubleBondShiftValue (const BondEnd& be, bool right, bool centered);
    void _prepareDoubleBondCoords (Vec2f* coord, BondDescr& bd, const BondEnd& be1, const BondEnd& be2, bool allowCentered);
    void _drawStereoCareBox (BondDescr& bd, const BondEnd& be1, const BondEnd& be2);
+   double _getAdjustmentFactor (const int aid, const int anei, const double acos, const double asin, const double tgb, const double csb, const double snb, const double len, const double w, double& csg, double& sng);
+   void _adjustAngle (Vec2f& l, const BondEnd& be1, const BondEnd& be2, bool left);
+   void _bondBoldStereo (BondDescr& bd, const BondEnd& be1, const BondEnd& be2);
    void _bondSingle (BondDescr& bd, const BondEnd& be1, const BondEnd& be2);
    void _bondDouble (BondDescr& bd, const BondEnd& be1, const BondEnd& be2);
    void _bondSingleOrAromatic (BondDescr& bd, const BondEnd& be1, const BondEnd& be2);
@@ -134,6 +138,7 @@ private:
    void _bondAromatic (BondDescr& bd, const BondEnd& be1, const BondEnd& be2);
    void _bondTriple (BondDescr& bd, const BondEnd& be1, const BondEnd& be2);
    void _bondAny (BondDescr& bd, const BondEnd& be1, const BondEnd& be2);
+   int _parseColorString (Scanner& str, float& r, float& g, float& b);
 
    // local
    void* _hdc;
@@ -145,6 +150,7 @@ private:
    bool isRFragment;
    const RenderSettings& _settings;
    const RenderOptions& _opt;
+   CP_DECL;
    TL_CP_DECL(MoleculeRenderData, _data);
    TL_CP_DECL(Array<int>, _atomMapping);
    TL_CP_DECL(Array<int>, _atomMappingInv);

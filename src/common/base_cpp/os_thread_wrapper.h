@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -111,6 +111,8 @@ private:
 
    void _handleException (Exception *exception);
    void _handleResultWithCheck (OsCommandResult *result);
+
+   void _wakeSuspended ();
 
 private:
    // Variables

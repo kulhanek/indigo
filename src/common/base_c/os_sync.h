@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -53,17 +53,17 @@ typedef struct tag_os_semaphore
 {
 #ifdef _WIN32
    void *data;
-#elif defined __APPLE__
+#elif __APPLE__
    semaphore_t data;
 #else
    sem_t data;
 #endif
 } os_semaphore;
 
-void osSemaphoreCreate  (os_semaphore *sem, int initial_count, int max_count);
-void osSemaphoreDelete  (os_semaphore *sem);
-void osSemaphoreWait    (os_semaphore *sem);
-void osSemaphorePost    (os_semaphore *sem);
+DLLEXPORT void osSemaphoreCreate  (os_semaphore *sem, int initial_count, int max_count);
+DLLEXPORT void osSemaphoreDelete  (os_semaphore *sem);
+DLLEXPORT void osSemaphoreWait    (os_semaphore *sem);
+DLLEXPORT void osSemaphorePost    (os_semaphore *sem);
 
 #ifdef __cplusplus
 }

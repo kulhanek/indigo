@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -31,7 +31,10 @@
 
 using namespace indigo;
 
+CP_DEF(MoleculeSubstructureMatcher::MarkushContext);
+
 MoleculeSubstructureMatcher::MarkushContext::MarkushContext (QueryMolecule &query_, BaseMolecule &target_) :
+CP_INIT,
 TL_CP_GET(query),
 TL_CP_GET(query_marking),
 TL_CP_GET(sites),
@@ -53,8 +56,13 @@ depth(0)
       query_marking[i] = -1;
 }
 
+IMPL_ERROR(MoleculeSubstructureMatcher, "molecule substructure matcher");
+
+CP_DEF(MoleculeSubstructureMatcher);
+
 MoleculeSubstructureMatcher::MoleculeSubstructureMatcher (BaseMolecule &target) :
 _target(target),
+CP_INIT,
 TL_CP_GET(_3d_constrained_atoms),
 TL_CP_GET(_unfolded_target_h),
 TL_CP_GET(_used_target_h)
@@ -302,7 +310,7 @@ bool MoleculeSubstructureMatcher::find ()
 
    if (_h_unfold)
    {
-     _target.asMolecule().unfoldHydrogens(&_unfolded_target_h);
+     _target.asMolecule().unfoldHydrogens(&_unfolded_target_h, -1, true);
      _ee->validate();
    }
 
@@ -314,7 +322,7 @@ bool MoleculeSubstructureMatcher::find ()
    _used_target_h.zerofill();
 
    if (use_aromaticity_matcher && AromaticityMatcher::isNecessary(*_query))
-      _am.create(*_query, _target);
+      _am.create(*_query, _target, arom_options);
    else
       _am.free();
 
@@ -366,7 +374,7 @@ void MoleculeSubstructureMatcher::_removeUnfoldedHydrogens ()
 bool MoleculeSubstructureMatcher::findNext ()
 {
    if (_h_unfold)
-     _target.asMolecule().unfoldHydrogens(&_unfolded_target_h);
+     _target.asMolecule().unfoldHydrogens(&_unfolded_target_h, -1, true);
 
    bool found = _ee->processNext();
 
@@ -406,6 +414,9 @@ bool MoleculeSubstructureMatcher::matchQueryAtom
       case QueryMolecule::ATOM_PSEUDO:
          return target.isPseudoAtom(super_idx) &&
                  strcmp(query->alias.ptr(), target.getPseudoAtom(super_idx)) == 0;
+      case QueryMolecule::ATOM_TEMPLATE:
+         return target.isTemplateAtom(super_idx) &&
+                 strcmp(query->alias.ptr(), target.getTemplateAtom(super_idx)) == 0;
       case QueryMolecule::ATOM_RSITE:
          return true;
       case QueryMolecule::ATOM_ISOTOPE:
@@ -420,7 +431,10 @@ bool MoleculeSubstructureMatcher::matchQueryAtom
       {
          if (target.isPseudoAtom(super_idx) || target.isRSite(super_idx))
             return false;
-         return query->valueWithinRange(target.getAtomRadical(super_idx));
+         int radical = target.getAtomRadical_NoThrow(super_idx, -1);
+         if (radical == -1)
+            return false;
+         return query->valueWithinRange(radical);
       }
       case QueryMolecule::ATOM_VALENCE:
       {
@@ -428,7 +442,10 @@ bool MoleculeSubstructureMatcher::matchQueryAtom
          {
             if (target.isPseudoAtom(super_idx) || target.isRSite(super_idx))
                return false;
-            return query->valueWithinRange(target.getAtomValence(super_idx));
+            int valence = target.getAtomValence_NoThrow(super_idx, -1);
+            if (valence == -1)
+               return false;
+            return query->valueWithinRange(valence);
          }
          return (flags & MATCH_DISABLED_AS_TRUE) != 0;
       }
@@ -436,27 +453,32 @@ bool MoleculeSubstructureMatcher::matchQueryAtom
       {
          int conn = target.getVertex(super_idx).degree();
          if (!target.isPseudoAtom(super_idx) && !target.isRSite(super_idx))
-            conn += target.asMolecule().getImplicitH(super_idx);
+            conn += target.asMolecule().getImplicitH_NoThrow(super_idx, 0);
          return query->valueWithinRange(conn);
       }
       case QueryMolecule::ATOM_TOTAL_BOND_ORDER:
       {
          // TODO: target.isPseudoAtom(super_idx) || target.isRSite(super_idx)
-         return query->valueWithinRange(target.asMolecule().getAtomConnectivity(super_idx));
+         int conn = target.asMolecule().getAtomConnectivity_NoThrow(super_idx, -1);
+         if (conn == -1)
+            return false;
+         return query->valueWithinRange(conn);
       }
       case QueryMolecule::ATOM_TOTAL_H:
       {
-         if (target.isPseudoAtom(super_idx) || target.isRSite(super_idx))
+         if (target.isPseudoAtom(super_idx) || target.isRSite(super_idx) || target.isTemplateAtom(super_idx))
             return false;
          return query->valueWithinRange(target.getAtomTotalH(super_idx));
       }
       case QueryMolecule::ATOM_SUBSTITUENTS:
+      case QueryMolecule::ATOM_SUBSTITUENTS_AS_DRAWN:
          return query->valueWithinRange(target.getAtomSubstCount(super_idx));
       case QueryMolecule::ATOM_SSSR_RINGS:
          return query->valueWithinRange(target.vertexCountSSSR(super_idx));
       case QueryMolecule::ATOM_SMALLEST_RING_SIZE:
          return query->valueWithinRange(target.vertexSmallestRingSize(super_idx));
       case QueryMolecule::ATOM_RING_BONDS:
+      case QueryMolecule::ATOM_RING_BONDS_AS_DRAWN:
          return query->valueWithinRange(target.getAtomRingBondsCount(super_idx));
       case QueryMolecule::ATOM_UNSATURATION:
          return !target.isSaturatedAtom(super_idx);
@@ -502,6 +524,8 @@ bool MoleculeSubstructureMatcher::matchQueryAtom
       }
       case QueryMolecule::ATOM_AROMATICITY:
          return query->valueWithinRange(target.getAtomAromaticity(super_idx));
+      case QueryMolecule::HIGHLIGHTING:
+         return query->valueWithinRange((int)target.isAtomHighlighted(super_idx));
       default:
          throw Error("bad query atom type: %d", query->type);
    }
@@ -554,6 +578,8 @@ bool MoleculeSubstructureMatcher::matchQueryBond (QueryMolecule::Bond *query,
       }
       case QueryMolecule::BOND_TOPOLOGY:
          return target.getEdgeTopology(super_idx) == query->value;
+      case QueryMolecule::HIGHLIGHTING:
+         return query->value == (int)target.isAtomHighlighted(super_idx);
       default:
          throw Error("bad query bond type: %d", query->type);
    }
@@ -584,10 +610,30 @@ bool MoleculeSubstructureMatcher::_matchAtoms(Graph &subgraph, Graph &supergraph
    QueryMolecule &query = (QueryMolecule &)subgraph;
    BaseMolecule &target  = (BaseMolecule &)supergraph;
 
-   if (!target.isPseudoAtom(super_idx) && !target.isRSite(super_idx))
-      if (query.getAtomMinH(sub_idx) > 0 && target.getAtomMaxH(super_idx) >= 0)
-         if (query.getAtomMinH(sub_idx) > target.getAtomMaxH(super_idx))
+   if (!target.isPseudoAtom(super_idx) && !target.isRSite(super_idx) && !target.isTemplateAtom(super_idx))
+   {
+      int q_min_h;
+      int t_max_h;
+      try
+      {
+         q_min_h = query.getAtomMinH(sub_idx);
+      }
+      catch (Exception e)
+      {
+         q_min_h = 0;
+      }
+      try
+      {
+         t_max_h = target.getAtomMaxH(super_idx);
+      }
+      catch (Exception e)
+      {
+         t_max_h = 0;
+      }
+      if (q_min_h > 0 && t_max_h >= 0)
+         if (q_min_h > t_max_h)
             return false;
+   }
 
    if (query.components.size() > sub_idx && query.components[sub_idx] > 0)
    {
@@ -1483,6 +1529,15 @@ int MoleculeSubstructureMatcher::_compare (int &i1, int &i2, void *context)
       return 1;
    if (is_pseudo1)
       return 0; // All pseudoatoms are the same for transposition for substructure
+
+   bool is_template1 = mol.isTemplateAtom(i1);
+   bool is_template2 = mol.isTemplateAtom(i2);
+   if (is_template1 && !is_template2)
+      return -1;
+   if (!is_template1 && is_template2)
+      return 1;
+   if (is_template1)
+      return 0; // All template atoms are the same for transposition for substructure (?)
 
    int res;
 

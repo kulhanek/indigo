@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -37,6 +37,8 @@ class Dearomatizer;
 class DearomatizationMatcher;
 struct Atom;
 
+typedef enum { BASIC, INCHI, RSMARTS } TautomerMethod;
+
 //#define TRACE_TAUTOMER_MATCHING
 
 struct TautomerRule
@@ -54,7 +56,7 @@ struct TautomerRule
 struct TautomerSearchContext
 {
    explicit TautomerSearchContext (BaseMolecule &g1_, BaseMolecule &g2_, GraphDecomposer &decomposer1_, GraphDecomposer &decomposer2_,
-      const PtrArray<TautomerRule> &rules_list_);
+      const PtrArray<TautomerRule> &rules_list_, const AromaticityOptions &arom_options);
    virtual ~TautomerSearchContext ();
 
    BaseMolecule &g1;
@@ -64,6 +66,7 @@ struct TautomerSearchContext
    GraphDecomposer &decomposer2;
 
    // amount of metal bonds
+   CP_DECL;
    TL_CP_DECL(Array<int>, h_rep_count_1);
    TL_CP_DECL(Array<int>, h_rep_count_2);
 
@@ -72,10 +75,13 @@ struct TautomerSearchContext
    bool force_hydrogens;
    bool ring_chain;
    int  rules;
+   TautomerMethod method;
    bool substructure;
    bool (*cb_check_rules) (TautomerSearchContext &context, int first1, int first2, int last1, int last2);
 
    int max_chains;
+
+   AromaticityOptions arom_options;
 
    TL_CP_DECL(DearomatizationsStorage, dearomatizations);
 
@@ -202,7 +208,7 @@ public:
    bool releaseChain ();
    void restoreChain ();
 
-   DEF_ERROR("tautomer chain checker");
+   DECL_ERROR;
 private:
    bool _checkInterPathBonds ();
 
@@ -260,6 +266,8 @@ public:
    virtual int getBondTopology (int idx);
    virtual bool possibleBondOrder (int idx, int order);
 
+   virtual int getAtomTotalH (int idx);
+
    bool isZeroedBond (int idx);
 
    const int * getMapping ();
@@ -281,12 +289,14 @@ protected:
    
    bool  _inside_ctor;
 
+   CP_DECL;
    TL_CP_DECL(Array<int>,  _atomsEmitBond);
    TL_CP_DECL(Array<int>,  _atomsAcceptBond);
    TL_CP_DECL(Array<bool>, _isBondAttachedArray);
    TL_CP_DECL(Array<int>,  _mapping);
    TL_CP_DECL(Array<int>,  _inv_mapping);
    TL_CP_DECL(Array<int>,  _edge_mapping);
+   TL_CP_DECL(Array<int>,  _total_h);
 };
 
 }

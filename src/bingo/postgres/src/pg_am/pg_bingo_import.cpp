@@ -1,3 +1,5 @@
+#include "bingo_pg_fix_pre.h"
+
 extern "C" {
 #include "postgres.h"
 #include "fmgr.h"
@@ -6,12 +8,9 @@ extern "C" {
 #include "utils/int8.h"
 #include "utils/builtins.h"
 }
-#ifdef qsort
-#undef qsort
-#endif
-#ifdef printf
-#undef printf
-#endif
+
+#include "bingo_pg_fix_post.h"
+
 #include "bingo_postgres.h"
 #include "bingo_pg_common.h"
 #include "base_cpp/scanner.h"
@@ -26,14 +25,11 @@ extern "C" {
 
 extern "C" {
 
-PG_FUNCTION_INFO_V1(importsdf);
-PGDLLEXPORT Datum importsdf(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(importsdf);
 
-PG_FUNCTION_INFO_V1(importrdf);
-PGDLLEXPORT Datum importrdf(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(importrdf);
 
-PG_FUNCTION_INFO_V1(importsmiles);
-PGDLLEXPORT Datum importsmiles(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(importsmiles);
 
 }
 
@@ -165,6 +161,7 @@ public:
       SPI_connect();
    }
    virtual ~BingoImportHandler() {
+      _importData.clear();
       SPI_finish();
    }
    
@@ -312,21 +309,30 @@ public:
       /*
        * Loop through the data
        */
+      
       while (hasNext()) {
          ++debug_idx;
          elog(DEBUG1, "bingo: %s: processing data entry with index %d", getFunctionName(), debug_idx);
+         
          /*
           * Initialize the data
           */
          try {
             getNextData();
          } catch (Exception& e) {
+            /*
+             * Handle incorrect format errors
+             */
+            if(strstr(e.message(), "data size exceeded the acceptable size") != 0)
+               throw BingoPgError(e.message());
             elog(WARNING, "can not import a structure: %s", e.message());
             continue;
          }
+         
          /*
           * Initialize values for the query
           */
+         
          q_values.clear();
          for (int q_idx = 0; q_idx < _importData.size(); ++q_idx) {
             q_values.push(_importData[q_idx]->getDatum());
@@ -347,10 +353,13 @@ public:
          }
          BINGO_PG_HANDLE(throw BingoPgError("can not import all the structures: SQL error: %s", message));
 
+         if(debug_idx % 1000 == 0)
+            elog(NOTICE, "bingo.import: %d structures processed", debug_idx);
          /*
           * Return back session id and error handler
           */
          refresh();
+         
       }
 
    }
@@ -377,7 +386,8 @@ public:
    }
    virtual ~BingoImportSdfHandler() {
       bingo_res = bingoSDFImportClose();
-      CORE_HANDLE_WARNING(bingo_res, 1, "importSDF close", bingoGetError());
+      CORE_HANDLE_WARNING(bingo_res, 0, "importSDF close", bingoGetError());
+
    }
 
    virtual bool hasNext() {
@@ -397,8 +407,17 @@ public:
          else
             data = bingoImportGetPropertyValue(col_idx - 1);
          
-         if (data == 0)
+         
+         if (data == 0) {
+            /*
+             * Handle incorrect format errors
+             */
+            if(strstr(bingoGetError(), "data size exceeded the acceptable size") != 0)
+               throw BingoPgError(bingoGetError());
             CORE_HANDLE_WARNING(0, 1, "importSDF", bingoGetError());
+         }
+
+
          _addData(data, col_idx);
       }
    }
@@ -446,7 +465,7 @@ public:
    }
    virtual ~BingoImportRdfHandler() {
       bingo_res = bingoRDFImportClose();
-      CORE_HANDLE_WARNING(bingo_res, 1, "importRDF close", bingoGetError());
+      CORE_HANDLE_WARNING(bingo_res, 0, "importRDF close", bingoGetError());
    }
 
    virtual bool hasNext() {
@@ -466,8 +485,14 @@ public:
          else 
             data = bingoImportGetPropertyValue(col_idx - 1);
          
-         if (data == 0)
+         if (data == 0) {
+            /*
+             * Handle incorrect format errors
+             */
+            if(strstr(bingoGetError(), "data size exceeded the acceptable size") != 0)
+               throw BingoPgError(bingoGetError());
             CORE_HANDLE_WARNING(0, 1, "importRDF", bingoGetError());
+         }
          _addData(data, col_idx);
       }
    }
@@ -511,11 +536,11 @@ public:
       _parseColumns = false;
       setFunctionName("importSMILES");
       bingo_res = bingoSMILESImportOpen(fname);
-      CORE_HANDLE_WARNING(bingo_res, 1, "importSmiles", bingoGetError());
+      CORE_HANDLE_ERROR(bingo_res, 1, "importSmiles", bingoGetError());
    }
    virtual ~BingoImportSmilesHandler() {
       bingo_res = bingoSMILESImportClose();
-      CORE_HANDLE_WARNING(bingo_res, 1, "importSmiles close", bingoGetError());
+      CORE_HANDLE_WARNING(bingo_res, 0, "importSmiles close", bingoGetError());
    }
 
    virtual bool hasNext() {

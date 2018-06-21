@@ -1,14 +1,17 @@
+#include "bingo_pg_fix_pre.h"
+
 extern "C"  {
 #include "postgres.h"
 #include "fmgr.h"
 #include "access/htup.h"
+#include "utils/rel.h"
 #include "utils/relcache.h"
 #include "storage/bufmgr.h"
 #include "catalog/index.h"
 }
-#ifdef qsort
-#undef qsort
-#endif
+
+#include "bingo_pg_fix_post.h"
+
 #include "bingo_postgres.h"
 #include "pg_bingo_context.h"
 #include "bingo_pg_build.h"
@@ -26,11 +29,9 @@ extern "C" {
    PG_MODULE_MAGIC;
 #endif
 
-PG_FUNCTION_INFO_V1(bingo_build);
-PGDLLEXPORT Datum bingo_build(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(bingo_build);
 
-PG_FUNCTION_INFO_V1(bingo_buildempty);
-PGDLLEXPORT Datum bingo_buildempty(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(bingo_buildempty);
 }
 
 static void bingoIndexCallback(Relation index,
@@ -135,7 +136,11 @@ static void bingoIndexCallback(Relation index,
    /*
     * Insert a new structure (single or parallel)
     */
-   build_engine.insertStructure(&htup->t_self, values[0]);
+   PG_BINGO_BEGIN
+   {
+      build_engine.insertStructure(&htup->t_self, values[0]);
+   }
+   PG_BINGO_END
 }
 
 Datum

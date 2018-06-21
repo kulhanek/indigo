@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -19,13 +19,18 @@
 #include "base_cpp/output.h"
 #include "lzw/lzw_dictionary.h"
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
+
 namespace indigo {
 
-class LzwEncoder
+class DLLEXPORT LzwEncoder
 {
 public:
 
-   DEF_ERROR("LZW encoder");
+   DECL_ERROR;
 
    LzwEncoder( LzwDict &NewDict, Output &NewOut );
 
@@ -69,6 +74,10 @@ private:
 };
 
 }
+
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 #endif 
 

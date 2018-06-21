@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -35,9 +35,11 @@ public:
    virtual float calcSelectivity (OracleEnv &env, int total_count);
    virtual int getIOCost (OracleEnv &env, float selectivity);
    
+   virtual bool getLastRowid (OraRowidText &id);
+
    int getTotalCount (OracleEnv &env);
 
-   DEF_ERROR("ringo fast fetch");
+   DECL_ERROR;
 
 protected:
    enum
@@ -51,6 +53,8 @@ protected:
    int _cur_idx;
    int _matched;
    int _unmatched;
+
+   int _last_id;
 
    BingoFingerprints::Screening _screening;
 

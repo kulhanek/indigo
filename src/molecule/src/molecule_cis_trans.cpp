@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -20,6 +20,8 @@
 #include "molecule/elements.h"
 
 using namespace indigo;
+
+IMPL_ERROR(MoleculeCisTrans, "cis-trans");
 
 BaseMolecule & MoleculeCisTrans::_getMolecule ()
 {
@@ -260,7 +262,7 @@ bool MoleculeCisTrans::isGeomStereoBond (BaseMolecule &mol, int bond_idx,
       if (nei_edge_idx == bond_idx)
          continue;
       
-      if (!mol.possibleBondOrder(nei_edge_idx, BOND_SINGLE))
+      if (!mol.possibleBondOrder(nei_edge_idx, BOND_SINGLE) && !mol.possibleBondOrder(nei_edge_idx, BOND_AROMATIC))
          return false;
 
       if (substituents[0] == -1)
@@ -276,7 +278,7 @@ bool MoleculeCisTrans::isGeomStereoBond (BaseMolecule &mol, int bond_idx,
       if (nei_edge_idx == bond_idx)
          continue;
       
-      if (!mol.possibleBondOrder(nei_edge_idx, BOND_SINGLE))
+      if (!mol.possibleBondOrder(nei_edge_idx, BOND_SINGLE) && !mol.possibleBondOrder(nei_edge_idx, BOND_AROMATIC))
          return false;
 
       if (substituents[2] == -1)
@@ -320,8 +322,9 @@ void MoleculeCisTrans::restoreSubstituents (int bond_idx)
    if (!isGeomStereoBond(mol, bond_idx, substituents, false))
       throw Error("restoreSubstituents(): not a cis-trans bond");
 
-   if (!sortSubstituents(mol, substituents, 0))
-      throw Error("can't sort restored substituents");
+   if (!bond.ignored)
+      if (!sortSubstituents(mol, substituents, 0))
+         throw Error("can't sort restored substituents");
 }
 
 void MoleculeCisTrans::registerUnfoldedHydrogen (int atom_idx, int added_hydrogen)
@@ -368,6 +371,21 @@ void MoleculeCisTrans::registerBond (int idx)
    _bonds[idx].clear();
 }
 
+void MoleculeCisTrans::validate ()
+{
+   BaseMolecule &mol = _getMolecule();
+
+   for (int i = mol.edgeBegin(); i != mol.edgeEnd(); i = mol.edgeNext(i))
+   {
+      if (getParity(i) != 0)
+      {
+         int subs[4];
+         if (!isGeomStereoBond(mol, i, subs, false))
+            setParity(i, 0);
+      }
+   }
+}
+ 
 bool MoleculeCisTrans::registerBondAndSubstituents (int idx)
 {
    BaseMolecule &mol = _getMolecule();
@@ -400,7 +418,12 @@ void MoleculeCisTrans::build (int *exclude_bonds)
 
       int *substituents = _bonds[i].substituents;
 
-      if (!isGeomStereoBond(mol, i, substituents, true))
+      bool have_xyz = true;
+      // If bond is marked with ignore flag then read this flag 
+      // even if coordinates are not valid.
+      if (exclude_bonds != 0 && exclude_bonds[i])
+         have_xyz = false;
+      if (!isGeomStereoBond(mol, i, substituents, have_xyz))
          continue;
 
       // Ignore only bonds that can be cis-trans
@@ -915,4 +938,31 @@ bool MoleculeCisTrans::isRingTransBond (int i)
       parity = 3 - parity;
    }
    return (parity == MoleculeCisTrans::TRANS);
+}
+
+bool MoleculeCisTrans::sameside (int edge_idx, int v1, int v2)
+{
+   int parity = getParity(edge_idx);
+   if (parity == 0)
+      throw Error("Bond %d is not a cis-trans bond", edge_idx);
+
+   const int *subst = getSubstituents(edge_idx);
+   int v[2] = { v1, v2 };
+   int v_pos[2] = { -1 };
+   for (int j = 0; j < 2; j++)
+   {
+      for (int i = 0; i < 4; i++)
+         if (subst[i] == v[j])
+         {
+            v_pos[j] = i;
+            break;
+         }
+      if (v_pos[j] == -1)
+         throw Error("Vertex %d has not been found near bond %d", v[j], edge_idx);
+   }
+
+   bool same_parity = (v_pos[0] % 2)  == (v_pos[1] % 2);
+   if (parity == TRANS)
+      same_parity = !same_parity;
+   return same_parity;
 }

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -42,7 +42,7 @@ CEXPORT int indigoExtractCommonScaffold (int structures, const char* options)
 
       if (self.deconvolution_aromatization)
          for(int i = 0; i < mol_set.size(); ++i)
-           MoleculeAromatizer::aromatizeBonds(mol_set[i]);
+            MoleculeAromatizer::aromatizeBonds(mol_set[i], self.arom_options);
 
       AutoPtr<IndigoScaffold> scaf(new IndigoScaffold());
 

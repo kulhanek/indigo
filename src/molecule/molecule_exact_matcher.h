@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -19,11 +19,16 @@
 #include "graph/embedding_enumerator.h"
 #include "graph/graph_decomposer.h"
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
+
 namespace indigo {
 
 class Molecule;
 
-class MoleculeExactMatcher
+class DLLEXPORT MoleculeExactMatcher
 {
 public:
    enum
@@ -54,7 +59,7 @@ public:
 
    bool needCoords ();
 
-   DEF_ERROR("molecule exact matcher");
+   DECL_ERROR;
 protected:
    BaseMolecule &_query;
    BaseMolecule &_target;

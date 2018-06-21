@@ -1,11 +1,11 @@
+#include "bingo_pg_fix_pre.h"
 
 extern "C" {
 #include "postgres.h"
 #include "fmgr.h"
 }
-#ifdef qsort
-#undef qsort
-#endif
+
+#include "bingo_pg_fix_post.h"
 
 #include "bingo_pg_build_engine.h"
 #include "bingo_core_c.h"
@@ -50,6 +50,8 @@ const char* BingoPgBuildEngine::getDictionary(int& size) {
 }
 
 int BingoPgBuildEngine::getNthreads() {
+   // TO DISABLE THREADS UNCOMMENT THIS
+//   return 1;
    int result;
    _setBingoContext();
 

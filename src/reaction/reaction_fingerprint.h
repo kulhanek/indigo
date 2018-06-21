@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -13,15 +13,22 @@
  ***************************************************************************/
 
 #ifndef __reaction_fingerprint__
+#define __reaction_fingerprint__
 
 #include "base_cpp/tlscont.h"
+#include "base_cpp/cancellation_handler.h"
+
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
 
 namespace indigo {
 
 class BaseReaction;
 struct MoleculeFingerprintParameters;
 
-class ReactionFingerprintBuilder
+class DLLEXPORT ReactionFingerprintBuilder
 {
 public:
    ReactionFingerprintBuilder (BaseReaction &reaction, const MoleculeFingerprintParameters &parameters);
@@ -36,10 +43,17 @@ public:
    byte * get ();
    byte * getSim ();
 
+   void parseFingerprintType(const char *type, bool query);
+
+   CancellationHandler* cancellation;
+
+   DECL_ERROR;
+
 protected:
          BaseReaction                  &_reaction;
    const MoleculeFingerprintParameters &_parameters;
    
+   CP_DECL;
    TL_CP_DECL(Array<byte>, _fingerprint);
 
 private:
@@ -47,5 +61,9 @@ private:
 };
 
 }
+
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 #endif

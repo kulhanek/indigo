@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -29,17 +29,22 @@
 
 using namespace indigo;
 
+IMPL_ERROR(ReactionProductEnumerator, "Reaction product enumerator");
+
+CP_DEF(ReactionProductEnumerator);
+
 ReactionProductEnumerator::ReactionProductEnumerator( QueryReaction &reaction ) : 
         is_multistep_reaction(false), is_self_react(false),
         is_one_tube(false), max_product_count(1000), max_deep_level(2),
         _reaction(reaction),
-        TL_CP_GET(_product_aam_array), TL_CP_GET(_smiles_array), TL_CP_GET(_tubes_monomers)
+        CP_INIT, TL_CP_GET(_product_aam_array), TL_CP_GET(_smiles_array), TL_CP_GET(_tubes_monomers)
 {
    _product_aam_array.clear();
    _smiles_array.clear();
    _tubes_monomers.clear();
    _product_count = 0;
    _is_rg_exist = false;
+   refine_proc = 0;
    product_proc = 0;
 }
 
@@ -120,10 +125,14 @@ void ReactionProductEnumerator::buildProducts( void )
    _smiles_array.clear();
    _product_count = 0;
 
-   ReactionEnumeratorState rpe_state(_reaction, all_products, 
+   ReactionEnumeratorContext context;
+   context.arom_options = arom_options;
+
+   ReactionEnumeratorState rpe_state(context, _reaction, all_products, 
                       _product_aam_array, _smiles_array, _reaction_monomers, 
                       _product_count, _tubes_monomers);
 
+   rpe_state.refine_proc = refine_proc;
    rpe_state.product_proc = product_proc;
    rpe_state.userdata = userdata;
    rpe_state.is_multistep_reaction = is_multistep_reaction;

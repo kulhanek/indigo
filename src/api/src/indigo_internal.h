@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -29,6 +29,10 @@
 #include "option_manager.h"
 #include "molecule/molecule_fingerprint.h"
 #include "molecule/molecule_tautomer.h"
+#include "molecule/molecule_stereocenter_options.h"
+#include "molecule/molecule_standardize_options.h"
+#include "molecule/molecule_ionize.h"
+
 
 /* When Indigo internal code is used dynamically the INDIGO_VERSION define 
  * should be compared with indigoVersion() to ensure libraries binary 
@@ -48,8 +52,8 @@ namespace indigo
    class RdfLoader;
    class MolfileSaver;
    class RxnfileSaver;
+   class PropertiesMap;
 }
-
 extern DLLEXPORT OptionManager & indigoGetOptionManager ();
 
 class DLLEXPORT IndigoObject
@@ -93,6 +97,8 @@ public:
       DECONVOLUTION,
       DECONVOLUTION_ELEM,
       DECONVOLUTION_ITER,
+      COMPOSITION_ELEM,
+      COMPOSITION_ITER,
       PROPERTIES_ITER,
       PROPERTY,
       FINGERPRINT,
@@ -132,7 +138,17 @@ public:
       SAVER,
       ATTACHMENT_POINTS_ITER,
       DECOMPOSITION_MATCH,
-      DECOMPOSITION_MATCH_ITER
+      DECOMPOSITION_MATCH_ITER,
+      CDX_MOLECULE,
+      CDX_REACTION,
+      MULTIPLE_CDX_LOADER,
+      CDX_SAVER,
+      SGROUP,
+      SGROUPS_ITER,
+      TAUTOMER_ITER,
+      TAUTOMER_MOLECULE,
+      TGROUP,
+      TGROUPS_ITER
    };
 
    int type;
@@ -149,7 +165,6 @@ public:
    virtual QueryReaction & getQueryReaction ();
    virtual Reaction & getReaction ();
 
-   virtual RedBlackStringObjMap< Array<char> > * getProperties();
    
    virtual IndigoObject * clone ();
 
@@ -163,7 +178,11 @@ public:
 
    virtual void remove ();
 
-   void copyProperties (RedBlackStringObjMap< Array<char> > &other);
+//   virtual RedBlackStringObjMap< Array<char> > * getProperties();
+//   void copyProperties (RedBlackStringObjMap< Array<char> > &other);
+   virtual PropertiesMap& getProperties();
+   virtual void copyProperties(PropertiesMap&);
+   virtual void copyProperties (RedBlackStringObjMap< Array<char> > &other);
 
 protected:
    AutoPtr< Array<char> > _dbg_info; // allocated by debugInfo() on demand
@@ -194,6 +213,8 @@ struct DLLEXPORT ProductEnumeratorParams
       is_multistep_reactions = false;
       is_one_tube = false;
       is_self_react = false;
+      is_layout = true;
+      transform_is_layout = true;
       max_deep_level = 2;
       max_product_count = 1000;
    }
@@ -201,6 +222,8 @@ struct DLLEXPORT ProductEnumeratorParams
    bool is_multistep_reactions;
    bool is_one_tube;
    bool is_self_react;
+   bool is_layout;
+   bool transform_is_layout;
    int max_deep_level;
    int max_product_count;
 };
@@ -224,14 +247,23 @@ public:
 
    void removeAllObjects ();
 
-   Array<char> tmp_string;
-   float tmp_xyz[3];
+   void init ();
+
+   int getId () const;
+
+   struct TmpData
+   {
+      Array<char> string;
+      float xyz[3];
+   };
+   // Method that returns temporary buffer that can be returned from Indigo C API methods
+   TmpData& getThreadTmpData ();
 
    ProductEnumeratorParams rpe_params;
    MoleculeFingerprintParameters fp_params;
    PtrArray<TautomerRule> tautomer_rules;
    
-   bool ignore_stereochemistry_errors;
+   StereocentersOptions stereochemistry_options;
    bool ignore_noncritical_query_features;
    bool treat_x_as_pseudoatom;
    bool skip_3d_chirality;
@@ -243,6 +275,7 @@ public:
    int  molfile_saving_mode; // MolfileSaver::MODE_***, default is zero
    bool molfile_saving_no_chiral;
    bool molfile_saving_skip_date;
+   bool molfile_saving_add_stereo_desc;
 
    bool smiles_saving_write_name;
 
@@ -252,6 +285,7 @@ public:
    int max_embeddings;
 
    int layout_max_iterations; // default is zero -- no limit
+   bool smart_layout = false;
 
    int aam_cancellation_timeout; //default is zero - no timeout
 
@@ -263,15 +297,39 @@ public:
    void initMolfileSaver (MolfileSaver &saver);
    void initRxnfileSaver (RxnfileSaver &saver);
 
+   bool preserve_ordering_in_serialize;
+
+   AromaticityOptions arom_options;
+   // This option is moved out of arom_options because it should be used only in indigoDearomatize method
+   bool unique_dearomatization; 
+
+   StandardizeOptions standardize_options;
+
+   IonizeOptions ionize_options;
+
 protected:
 
    RedBlackMap<int, IndigoObject *> _objects;
 
    int    _next_id;
    OsLock _objects_lock;
+
+   int _indigo_id;
 };
 
+class DLLEXPORT IndigoPluginContext
+{
+public:
+   IndigoPluginContext ();
 
+   void validate ();
+
+protected:
+   virtual void init () = 0;
+
+private:
+   int indigo_id;
+};
 
 #define INDIGO_BEGIN { Indigo &self = indigoGetInstance(); \
       try { self.error_message.clear(); self.resetCancellationHandler(); 

@@ -1,19 +1,20 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
- * 
+ * Copyright (C) 2009-2015 EPAM Systems
+ *
  * This file is part of Indigo toolkit.
- * 
+ *
  * This file may be distributed and/or modified under the terms of the
  * GNU General Public License version 3 as published by the Free Software
  * Foundation and appearing in the file LICENSE.GPL included in the
  * packaging of this file.
- * 
+ *
  * This file is provided AS IS with NO WARRANTY OF ANY KIND, INCLUDING THE
  * WARRANTY OF DESIGN, MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  ***************************************************************************/
 
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 #include <math.h>
 #include <stdarg.h>
 
@@ -22,7 +23,13 @@
 #include "base_cpp/array.h"
 #include "base_cpp/tlscont.h"
 
+#ifndef va_copy
+ #define va_copy(d, s) ((d) = (s))
+#endif
+
 using namespace indigo;
+
+IMPL_ERROR(Output, "output");
 
 Output::Output ()
 {
@@ -67,13 +74,13 @@ void Output::writeBinaryWord (word value)
 void Output::printf (const char *format, ...)
 {
    va_list args;
-  
+
    va_start(args, format);
    vprintf(format, args);
    va_end(args);
 }
 
-void Output::vprintf (const char *format, va_list args)
+void Output::vprintf (const char *format, va_list args_orig)
 {
    QS_DEF(Array<char>, str);
    if (str.size() < 2048)
@@ -82,11 +89,16 @@ void Output::vprintf (const char *format, va_list args)
    int n;
    while (true)
    {
-//#ifdef _WIN32
-//      n = _vsnprintf_l(str.ptr(), str.size(), format, getCLocale(), args);
-//#else
+      va_list args;
+
+      // vsnprintf may change va_list argument that leads to segfault
+      va_copy(args, args_orig);
+
+#if defined(_WIN32) && !defined(__MINGW32__)
+      n = _vsnprintf_l(str.ptr(), str.size(), format, getCLocale(), args);
+#else
       n = vsnprintf(str.ptr(), str.size(), format, args);
-//#endif
+#endif
       /* If that worked, return the string. */
       if (n > -1 && n < str.size())
          break;
@@ -116,7 +128,7 @@ void Output::writeCR ()
 void Output::printfCR (const char *format, ...)
 {
    va_list args;
-  
+
    va_start(args, format);
    vprintf(format, args);
    va_end(args);
@@ -178,7 +190,7 @@ FileOutput::FileOutput (Encoding filename_encoding, const char *filename)
    _file = openFile(filename_encoding, filename, "wb");
 
    if (_file == NULL)
-      throw Error("can't open file %s", filename);
+      throw Error("can't open file %s. Error: %s", filename, strerror(errno));
 }
 
 FileOutput::FileOutput (const char *filename)
@@ -186,7 +198,7 @@ FileOutput::FileOutput (const char *filename)
    _file = fopen(filename, "wb");
 
    if (_file == NULL)
-      throw Error("can't open file %s", filename);
+      throw Error("can't open file %s. Error: %s", filename, strerror(errno));
 }
 
 FileOutput::FileOutput (bool append, const char *format, ...)
@@ -205,7 +217,7 @@ FileOutput::FileOutput (bool append, const char *format, ...)
       _file = fopen(filename, "wb");
 
    if (_file == NULL)
-      throw Error("can't open file %s", filename);
+      throw Error("can't open file %s. Error: %s", filename, strerror(errno));
 }
 
 FileOutput::~FileOutput ()
@@ -288,12 +300,12 @@ void StandardOutput::write (const void *data, int size)
 {
    if (size == 0)
       return;
-   
+
    size_t res = fwrite(data, size, 1, stdout);
 
    if (res != 1)
       throw Error("error writing to standard output");
-   
+
    _count += size;
 }
 

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -22,11 +22,14 @@
 
 using namespace indigo;
 
+IMPL_ERROR(RxnfileSaver, "Rxnfile saver");
+
 RxnfileSaver::RxnfileSaver(Output &output) : 
    _output(output)
 {
    molfile_saving_mode = MolfileSaver::MODE_AUTO;
    skip_date = false;
+   add_stereo_desc = false;
 }
 
 RxnfileSaver::~RxnfileSaver(){
@@ -85,6 +88,8 @@ void RxnfileSaver::_saveReaction(){
 
    MolfileSaver molfileSaver(_output);
    molfileSaver.mode = _v2000 ? MolfileSaver::MODE_2000 : MolfileSaver::MODE_3000;
+   molfileSaver.add_stereo_desc = add_stereo_desc;
+
    
    _writeRxnHeader(*_brxn);
 

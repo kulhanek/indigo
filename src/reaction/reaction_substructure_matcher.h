@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -22,17 +22,22 @@
 #include "base_cpp/obj.h"
 #include "reaction/base_reaction_substructure_matcher.h"
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4251)
+#endif
+
 namespace indigo {
 
 class QueryReaction;
 
-class ReactionSubstructureMatcher : public BaseReactionSubstructureMatcher
+class DLLEXPORT ReactionSubstructureMatcher : public BaseReactionSubstructureMatcher
 {
 public:
    ReactionSubstructureMatcher (Reaction &target);
    bool use_daylight_aam_mode;
 
-   DEF_ERROR("reaction substructure matcher");
+   DECL_ERROR;
 
 protected:
 
@@ -59,5 +64,9 @@ protected:
 };
 
 }
+
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 #endif

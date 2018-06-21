@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -24,6 +24,8 @@
 
 namespace indigo {
 
+DECL_EXCEPTION(PtrPoolError);
+
 template <typename T> class PtrPool
 {
 public:
@@ -36,7 +38,7 @@ public:
       clear();
    }
 
-   DEF_ERROR("ptr pool");
+   DECL_TPL_ERROR(PtrPoolError);
 
    int add (T *obj)
    {
@@ -49,22 +51,27 @@ public:
       _ptrpool.remove(idx);
    }
 
-   int size ()
+   bool hasElement(int idx) const
+   {
+      return _ptrpool.hasElement(idx);
+   }
+
+   int size () const
    {
       return _ptrpool.size();
    }
 
-   int begin ()
+   int begin () const
    {
       return _ptrpool.begin();
    }
 
-   int end ()
+   int end () const
    {
       return _ptrpool.end();
    }
 
-   int next (int i)
+   int next (int i) const
    {
       return _ptrpool.next(i);
    }
@@ -84,6 +91,9 @@ public:
 
    const T *  at (int index) const { return _ptrpool[index]; }
          T *& at (int index)       { return _ptrpool[index]; }
+
+   const T& ref (int index) const { return *_ptrpool[index]; }
+         T& ref (int index)       { return *_ptrpool[index]; }
 
 protected:
    Pool<T *> _ptrpool;

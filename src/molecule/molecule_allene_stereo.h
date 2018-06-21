@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2011 GGA Software Services LLC
+ * Copyright (C) 2011 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -58,7 +58,7 @@ public:
    void removeBonds (const Array<int> &indices);
    void registerUnfoldedHydrogen (int atom_idx, int added_hydrogen);
 
-   DEF_ERROR("allene stereo");
+   DECL_ERROR;
 
 
 protected:

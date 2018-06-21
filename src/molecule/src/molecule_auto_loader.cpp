@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -18,37 +18,45 @@
 #include "molecule/smiles_loader.h"
 #include "molecule/molfile_loader.h"
 #include "molecule/icm_loader.h"
+#include "molecule/icm_saver.h"
 #include "molecule/molecule.h"
 #include "molecule/query_molecule.h"
 #include "gzip/gzip_scanner.h"
 #include "molecule/molecule_cml_loader.h"
+#include "molecule/sdf_loader.h"
+#include "molecule/molecule_cdx_loader.h"
 
 using namespace indigo;
 
 void MoleculeAutoLoader::_init ()
 {
-   ignore_stereocenter_errors = false;
+   stereochemistry_options.reset();
    treat_x_as_pseudoatom = false;
    ignore_closing_bond_direction_mismatch = false;
    ignore_noncritical_query_features = false;
    skip_3d_chirality = false;
+   ignore_cistrans_errors = false;
 }
 
-MoleculeAutoLoader::MoleculeAutoLoader (Scanner &scanner)
+IMPL_ERROR(MoleculeAutoLoader, "molecule auto loader");
+
+CP_DEF(MoleculeAutoLoader);
+
+MoleculeAutoLoader::MoleculeAutoLoader (Scanner &scanner) : CP_INIT, TL_CP_GET(properties)
 {
    _scanner = &scanner;
    _own_scanner = false;
    _init();
 }
 
-MoleculeAutoLoader::MoleculeAutoLoader (const Array<char> &arr)
+MoleculeAutoLoader::MoleculeAutoLoader (const Array<char> &arr) : CP_INIT, TL_CP_GET(properties)
 {
    _scanner = new BufferScanner(arr);
    _own_scanner = true;
    _init();
 }
 
-MoleculeAutoLoader::MoleculeAutoLoader (const char *str)
+MoleculeAutoLoader::MoleculeAutoLoader (const char *str) : CP_INIT, TL_CP_GET(properties)
 {
    _scanner = new BufferScanner(str);
    _own_scanner = true;
@@ -144,6 +152,8 @@ bool MoleculeAutoLoader::tryMDLCT (Scanner &scanner, Array<char> &outbuf)
 
 void MoleculeAutoLoader::_loadMolecule (BaseMolecule &mol, bool query)
 {
+   properties.clear();
+
    // check for GZip format
    if (!query && _scanner->length() >= 2)
    {
@@ -161,7 +171,7 @@ void MoleculeAutoLoader::_loadMolecule (BaseMolecule &mol, bool query)
          gzscanner.readAll(buf);
          MoleculeAutoLoader loader2(buf);
 
-         loader2.ignore_stereocenter_errors = ignore_stereocenter_errors;
+         loader2.stereochemistry_options = stereochemistry_options;
          loader2.ignore_noncritical_query_features = ignore_noncritical_query_features;
          loader2.treat_x_as_pseudoatom = treat_x_as_pseudoatom;
          loader2.skip_3d_chirality = skip_3d_chirality;
@@ -177,7 +187,7 @@ void MoleculeAutoLoader::_loadMolecule (BaseMolecule &mol, bool query)
       {
          BufferScanner scanner2(buf);
          MolfileLoader loader(scanner2);
-         loader.ignore_stereocenter_errors = ignore_stereocenter_errors;
+         loader.stereochemistry_options = stereochemistry_options;
          loader.ignore_noncritical_query_features = ignore_noncritical_query_features;
          loader.skip_3d_chirality = skip_3d_chirality;
          loader.treat_x_as_pseudoatom = treat_x_as_pseudoatom;
@@ -198,7 +208,7 @@ void MoleculeAutoLoader::_loadMolecule (BaseMolecule &mol, bool query)
 
       _scanner->readCharsFix(3, id);
       _scanner->seek(pos, SEEK_SET);
-      if (strncmp(id, "ICM", 3) == 0)
+      if (IcmSaver::checkVersion(id))
       {
          if (query)
             throw Error("cannot load query molecule from ICM format");
@@ -219,7 +229,7 @@ void MoleculeAutoLoader::_loadMolecule (BaseMolecule &mol, bool query)
          if (_scanner->findWord("<molecule"))
          {
             MoleculeCmlLoader loader(*_scanner);
-            loader.ignore_stereochemistry_errors = ignore_stereocenter_errors;
+            loader.stereochemistry_options = stereochemistry_options;
             if (query)
                throw Error("CML queries not supported");
             loader.loadMolecule(mol.asMolecule());
@@ -237,7 +247,8 @@ void MoleculeAutoLoader::_loadMolecule (BaseMolecule &mol, bool query)
 
       loader.ignore_closing_bond_direction_mismatch =
              ignore_closing_bond_direction_mismatch;
-      loader.ignore_stereochemistry_errors = ignore_stereocenter_errors;
+      loader.stereochemistry_options = stereochemistry_options;
+      loader.ignore_cistrans_errors = ignore_cistrans_errors;
       if (query)
          loader.loadQueryMolecule((QueryMolecule &)mol);
       else
@@ -245,10 +256,36 @@ void MoleculeAutoLoader::_loadMolecule (BaseMolecule &mol, bool query)
       return;
    }
 
+
+   // check for CDX format
+/*
+   {
+      if (_scanner->findWord("VjCD0100"))
+      {
+         MoleculeCdxLoader loader(*_scanner);
+         loader.stereochemistry_options = stereochemistry_options;
+         if (query)
+            throw Error("CDX queries not supported yet");
+         loader.loadMolecule(mol.asMolecule());
+
+         properties.copy(loader.properties);
+
+         return;
+      }
+   }
+*/
    // default is Molfile format
    {
-      MolfileLoader loader(*_scanner);
-      loader.ignore_stereocenter_errors = ignore_stereocenter_errors;
+      SdfLoader sdf_loader(*_scanner);
+      sdf_loader.readNext();
+
+      // Copy properties
+      properties.copy(sdf_loader.properties);
+
+      BufferScanner scanner2(sdf_loader.data);
+
+      MolfileLoader loader(scanner2);
+      loader.stereochemistry_options = stereochemistry_options;
       loader.ignore_noncritical_query_features = ignore_noncritical_query_features;
       loader.skip_3d_chirality = skip_3d_chirality;
       loader.treat_x_as_pseudoatom = treat_x_as_pseudoatom;

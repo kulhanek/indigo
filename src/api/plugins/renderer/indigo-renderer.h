@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2010-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -41,6 +41,6 @@ CEXPORT int indigoRenderToFile (int object, const char *filename);
 CEXPORT int indigoRenderGridToFile (int objects, int* refAtoms, int nColumns, const char *filename);
 
 // Resets all the rendering settings
-CEXPORT int indigoRenderReset (int render);
+CEXPORT int indigoRenderReset ();
 
 #endif

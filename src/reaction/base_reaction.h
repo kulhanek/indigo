@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -23,13 +23,43 @@
 #include "molecule/base_molecule.h"
 #include "base_cpp/obj_array.h"
 #include "base_cpp/ptr_pool.h"
+#include "base_cpp/auto_iter.h"
+#include "base_cpp/non_copyable.h"
 
 namespace indigo {
 
 class Reaction;
 class QueryReaction;
+class BaseReaction;
 
-class DLLEXPORT BaseReaction {
+class SideIter : public AutoIterator
+{
+public:
+   DECL_ERROR;
+
+   SideIter(BaseReaction &owner, int idx, int side);
+
+   SideIter & operator++ ();
+
+private:
+   BaseReaction &_owner;
+   int _side;
+};
+
+class SideAuto
+{
+public:
+   SideAuto(BaseReaction &owner, int side);
+
+   SideIter begin();
+   SideIter end();
+
+private:
+   BaseReaction &_owner;
+   int _side;
+};
+
+class DLLEXPORT BaseReaction : public NonCopyable {
 public:
    enum
    {
@@ -66,6 +96,7 @@ public:
 
    int sideBegin (int side)    { return _nextElement(side, -1); }
    int sideNext (int side, int index) { return _nextElement(side, index); }
+   // dkuzminov: we either need to have a parameter "side" for method sideEnd() or we should exclude the set of "different" xxxEnd methods for sake of the single "end" method
    int sideEnd ()             { return _allMolecules.end(); }
 
    int getSideType(int index) {return _types[index]; }
@@ -73,13 +104,17 @@ public:
    int reactantsCount() const { return _reactantCount; }
    int productsCount() const { return _productCount; }
    int catalystCount() const { return _catalystCount; }
-   
+
+   SideAuto reactants;
+   SideAuto catalysts;
+   SideAuto products;
+
    virtual void clear();
 
    // Returns true if some bonds were changed
-   virtual bool aromatize() = 0;
+   virtual bool aromatize (const AromaticityOptions &options) = 0;
    // Returns true if all bonds were dearomatized
-   virtual bool dearomatize() = 0;
+   virtual bool dearomatize (const AromaticityOptions &options) = 0;
 
    // poor man's dynamic casting
    virtual Reaction & asReaction ();
@@ -120,7 +155,7 @@ public:
 
    Array<char> name;
 
-   DEF_ERROR("reaction");
+   DECL_ERROR;
 
 protected:
 
@@ -142,9 +177,6 @@ protected:
    int _nextElement(int type, int index);
 
    virtual void _clone (BaseReaction &other, int index, int i, ObjArray< Array<int> >* mol_mappings);
-
-private:
-   BaseReaction(const BaseReaction&);//no implicit copy
 };
 
 }

@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -24,8 +24,13 @@ using namespace indigo;
 
 using namespace MoleculeInChILayers;
 
+IMPL_ERROR(MoleculeInChI, "InChI canonicalizer");
+
+CP_DEF(MoleculeInChI);
+
 MoleculeInChI::MoleculeInChI (Output &output) :
    _output(output),
+   CP_INIT,
    TL_CP_GET(_components),
    TL_CP_GET(_component_indices)
 {
@@ -264,7 +269,7 @@ int MoleculeInChI::_cmpComponents (int &index1,
    return 0;
 }
 
-void MoleculeInChI::_normalizeMolecule (Molecule &mol)
+void MoleculeInChI::_normalizeMolecule(Molecule &mol)
 {
    QS_DEF(Array<int>, ignored);
 

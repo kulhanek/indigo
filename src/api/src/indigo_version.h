@@ -15,6 +15,6 @@
 #ifndef __indigo_version__
 #define __indigo_version__
 
-#define INDIGO_VERSION "1.1"
+#define INDIGO_VERSION "1.2.3"
 
 #endif

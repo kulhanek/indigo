@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -27,6 +27,8 @@
 #include "molecule/elements.h"
 #include "base_cpp/profiling.h"
 
+IMPL_ERROR(MangoTautomer, "tautomer matcher");
+
 MangoTautomer::MangoTautomer (BingoContext &context) :
 _context(context)
 {
@@ -36,11 +38,8 @@ _context(context)
 void MangoTautomer::loadQuery (Scanner &scanner)
 {
    MoleculeAutoLoader loader(scanner);
+   _context.setLoaderSettings(loader);
 
-   loader.treat_x_as_pseudoatom = _context.treat_x_as_pseudoatom;
-   loader.ignore_closing_bond_direction_mismatch =
-          _context.ignore_closing_bond_direction_mismatch;
-   
    if (_params.substructure)
    {
       _query.reset(new QueryMolecule());
@@ -86,7 +85,8 @@ void MangoTautomer::setParams (int conditions, bool force_hydrogens, bool ring_c
 
 void MangoTautomer::setParameters (const char *conditions)
 {
-   MoleculeTautomerMatcher::parseConditions(conditions, _params.conditions, _params.force_hydrogens, _params.ring_chain);
+   TautomerMethod m = RSMARTS;
+   MoleculeTautomerMatcher::parseConditions(conditions, _params.conditions, _params.force_hydrogens, _params.ring_chain, m);
 }
 
 void MangoTautomer::_validateQueryData ()
@@ -99,7 +99,7 @@ void MangoTautomer::_validateQueryData ()
       QS_DEF(QueryMolecule, aromatized_query);
 
       aromatized_query.clone(_query.ref(), 0, 0);
-      QueryMoleculeAromatizer::aromatizeBonds(aromatized_query);
+      QueryMoleculeAromatizer::aromatizeBonds(aromatized_query, AromaticityOptions::BASIC);
       
       MoleculeFingerprintBuilder builder(aromatized_query, _context.fp_parameters);
       builder.query = true;
@@ -136,10 +136,7 @@ void MangoTautomer::loadTarget (const char *target)
 void MangoTautomer::loadTarget (Scanner &scanner)
 {
    MoleculeAutoLoader loader(scanner);
-
-   loader.treat_x_as_pseudoatom = _context.treat_x_as_pseudoatom;
-   loader.ignore_closing_bond_direction_mismatch =
-          _context.ignore_closing_bond_direction_mismatch;
+   _context.setLoaderSettings(loader);
    loader.loadMolecule(_target);
 
    _initTarget(false);
@@ -155,9 +152,10 @@ void MangoTautomer::loadTarget (const Array<char> &molfile_buf)
 bool MangoTautomer::matchLoadedTarget ()
 {
    MoleculeTautomerMatcher matcher(_target, _params.substructure);
+   TautomerMethod m = RSMARTS;
 
    matcher.setRulesList(&_context.tautomer_rules);
-   matcher.setRules(_params.conditions, _params.force_hydrogens, _params.ring_chain);
+   matcher.setRules(_params.conditions, _params.force_hydrogens, _params.ring_chain, m);
    matcher.setQuery(_query.ref());
    matcher.highlight = true;
 
@@ -190,7 +188,7 @@ void MangoTautomer::_initTarget (bool from_database)
       Molecule::saveBondOrders(_target, _target_bond_types);
 
    if (!from_database)
-      MoleculeAromatizer::aromatizeBonds(_target);
+      MoleculeAromatizer::aromatizeBonds(_target, AromaticityOptions::BASIC);
 }
 
 bool MangoTautomer::matchBinary (const Array<char> &target_buf)
@@ -206,11 +204,12 @@ bool MangoTautomer::matchBinary (Scanner &scanner)
    
    loader.loadMolecule(_target);
    _initTarget(true);
+   TautomerMethod m = RSMARTS;
 
    MoleculeTautomerMatcher matcher(_target, _params.substructure);
 
    matcher.setRulesList(&_context.tautomer_rules);
-   matcher.setRules(_params.conditions, _params.force_hydrogens, _params.ring_chain);
+   matcher.setRules(_params.conditions, _params.force_hydrogens, _params.ring_chain, m);
    matcher.setQuery(_query.ref());
 
    profTimerStart(temb, "match.embedding");

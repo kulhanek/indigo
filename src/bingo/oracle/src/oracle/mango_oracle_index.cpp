@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -42,7 +42,8 @@ bool mangoPrepareMolecule (OracleEnv &env, const char *rowid,
                             MangoOracleContext &context,
                             MangoIndex &index,
                             Array<char> &data,
-                            OsLock *lock_for_exclusive_access)
+                            OsLock *lock_for_exclusive_access, 
+                            std::string &failure_message)
 {
    profTimerStart(tall, "moleculeIndex.prepare");
 
@@ -76,12 +77,20 @@ bool mangoPrepareMolecule (OracleEnv &env, const char *rowid,
       }
       catch (CmfSaver::Error &e) 
       {
+         if (context.context().reject_invalid_structures)
+            throw; // Rethrow this exception further
          OsLockerNullable locker(lock_for_exclusive_access);
          env.dbgPrintf(bad_molecule_warning_rowid, rowid, e.message());
+         failure_message = e.message();
          return false;
       }
    }
-   CATCH_READ_TARGET_MOL_ROWID(rowid, return false);
+   CATCH_READ_TARGET_MOL_ROWID(rowid, {
+      if (context.context().reject_invalid_structures)
+         throw; // Rethrow this exception further
+      failure_message = e.message();
+      return false;
+   });
 
    // some magic: round it up to avoid ora-22282
    if (data.size() % 2 == 1)
@@ -121,17 +130,21 @@ bool mangoPrepareAndRegisterMolecule (OracleEnv &env, const char *rowid,
                              BingoFingerprints &fingerprints, bool append)
 {
    QS_DEF(Array<char>, prepared_data);
-   
+   std::string failure_message;
+
    if (mangoPrepareMolecule(env, rowid, molfile_buf, context, 
-      index, prepared_data, NULL))
+      index, prepared_data, NULL, failure_message))
    {
       mangoRegisterMolecule(env, rowid, context, 
          index, fingerprints, prepared_data, append);
 
       return true;
    }
-
-   return false;
+   else
+   {
+      context.context().warnings.add(env, rowid, failure_message.c_str());
+      return false;
+   }
 }
 
 

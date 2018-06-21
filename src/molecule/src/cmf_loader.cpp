@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -20,12 +20,21 @@
 
 using namespace indigo;
 
+IMPL_ERROR(CmfLoader, "CMF loader");
+
+CP_DEF(CmfLoader);
+
 CmfLoader::CmfLoader (LzwDict &dict, Scanner &scanner) :
+CP_INIT,
 TL_CP_GET(_atoms),
 TL_CP_GET(_bonds),
 TL_CP_GET(_pseudo_labels),
 TL_CP_GET(_attachments),
-TL_CP_GET(_sgroup_order)
+TL_CP_GET(_sgroup_order),
+TL_CP_GET(atom_mapping_to_restore),
+TL_CP_GET(inv_atom_mapping_to_restore),
+TL_CP_GET(bond_mapping_to_restore),
+TL_CP_GET(inv_bond_mapping_to_restore)
 {
    _init();
    _decoder_obj.create(dict, scanner);
@@ -34,14 +43,24 @@ TL_CP_GET(_sgroup_order)
 }
 
 CmfLoader::CmfLoader (Scanner &scanner) :
-TL_CP_GET(_atoms), TL_CP_GET(_bonds), TL_CP_GET(_pseudo_labels), TL_CP_GET(_attachments), TL_CP_GET(_sgroup_order)
+CP_INIT,
+TL_CP_GET(_atoms), TL_CP_GET(_bonds), TL_CP_GET(_pseudo_labels), TL_CP_GET(_attachments), TL_CP_GET(_sgroup_order),
+TL_CP_GET(atom_mapping_to_restore),
+TL_CP_GET(inv_atom_mapping_to_restore),
+TL_CP_GET(bond_mapping_to_restore),
+TL_CP_GET(inv_bond_mapping_to_restore)
 {
    _init();
    _scanner = &scanner;
 }
 
 CmfLoader::CmfLoader (LzwDecoder &decoder) :
-TL_CP_GET(_atoms), TL_CP_GET(_bonds), TL_CP_GET(_pseudo_labels), TL_CP_GET(_attachments), TL_CP_GET(_sgroup_order)
+CP_INIT,
+TL_CP_GET(_atoms), TL_CP_GET(_bonds), TL_CP_GET(_pseudo_labels), TL_CP_GET(_attachments), TL_CP_GET(_sgroup_order),
+TL_CP_GET(atom_mapping_to_restore),
+TL_CP_GET(inv_atom_mapping_to_restore),
+TL_CP_GET(bond_mapping_to_restore),
+TL_CP_GET(inv_bond_mapping_to_restore)
 {
    _init();
    _lzw_scanner.create(decoder);
@@ -65,6 +84,10 @@ void CmfLoader::_init ()
    bond_flags = 0;
 
    _sgroup_order.clear();
+
+   has_mapping = false;
+
+   version = 2;
 }
 
 bool CmfLoader::_getNextCode (int &code)
@@ -174,8 +197,8 @@ bool CmfLoader::_readAtom (int &code, _AtomDesc &atom, int atom_idx)
    {
       if (code == CMF_RADICAL_SINGLET)
          atom.radical = RADICAL_SINGLET;
-      else if (code == CMF_RADICAL_DOUPLET)
-         atom.radical = RADICAL_DOUPLET;
+      else if (code == CMF_RADICAL_DOUBLET)
+         atom.radical = RADICAL_DOUBLET;
       else // code == CMF_RADICAL_TRIPLET
          atom.radical = RADICAL_TRIPLET;
       
@@ -686,56 +709,102 @@ void CmfLoader::loadMolecule (Molecule &mol)
 
    // for loadXyz()
    _mol = &mol;
+
+   // Check if atom mapping was used
+   if (has_mapping)
+   {
+      // Compute inv_atom_mapping_to_restore
+      inv_atom_mapping_to_restore.clear_resize(atom_mapping_to_restore.size());
+      for (int i = 0; i < atom_mapping_to_restore.size(); i++)
+         inv_atom_mapping_to_restore[atom_mapping_to_restore[i]] = i;
+
+      // Compute inv_bond_mapping_to_restore
+      inv_bond_mapping_to_restore.clear_resize(bond_mapping_to_restore.size());
+      for (int i = 0; i < bond_mapping_to_restore.size(); i++)
+         inv_bond_mapping_to_restore[bond_mapping_to_restore[i]] = i;
+
+      QS_DEF(Molecule, tmp);
+      tmp.makeEdgeSubmolecule(mol, atom_mapping_to_restore, bond_mapping_to_restore, NULL);
+      mol.clone(tmp, NULL, NULL);
+
+   }
 }
 
 void CmfLoader::_readSGroup (int code, Molecule &mol)
 {
+   int idx = -1;
    if (code == CMF_DATASGROUP)
    {
-      int idx = mol.data_sgroups.add();
-      BaseMolecule::DataSGroup &s = mol.data_sgroups[idx];
+      idx = mol.sgroups.addSGroup(SGroup::SG_TYPE_DAT);
+      DataSGroup &s = (DataSGroup &)mol.sgroups.getSGroup(idx);
       _readGeneralSGroup(s);
 
       _readString(s.description);
+      _readString(s.name);
+      _readString(s.type);
+      _readString(s.querycode);
+      _readString(s.queryoper);
       _readString(s.data);
       byte bits = _scanner->readByte();
       s.dasp_pos = bits & 0x0F;
       s.detached = (bits & (1 << 4)) != 0;
       s.relative = (bits & (1 << 5)) != 0;
       s.display_units = (bits & (1 << 6)) != 0;
+      s.num_chars = (int)_scanner->readPackedUInt();
+      s.tag = _scanner->readChar();
    }
    else if (code == CMF_SUPERATOM)
    {
-      int idx = mol.superatoms.add();
-      BaseMolecule::Superatom &s = mol.superatoms[idx];
+      idx = mol.sgroups.addSGroup(SGroup::SG_TYPE_SUP);
+      Superatom &s = (Superatom &)mol.sgroups.getSGroup(idx);
       _readGeneralSGroup(s);
+
       _readString(s.subscript);
-      s.bond_idx = (int)_scanner->readPackedUInt() - 1;
+      _readString(s.sa_class);
+      byte bits = _scanner->readByte();
+      s.contracted = bits & 0x01;
+      int bcons = bits >> 1;
+      if (bcons > 0)
+      {
+         s.bond_connections.resize(bcons);
+         for (int j = 0; j < bcons; j++)
+         {
+            s.bond_connections[j].bond_idx = (int)_scanner->readPackedUInt() - 1;
+         }
+      }
    }
    else if (code == CMF_REPEATINGUNIT)
    {
-      int idx = mol.repeating_units.add();
-      BaseMolecule::RepeatingUnit &s = mol.repeating_units[idx];
+      idx = mol.sgroups.addSGroup(SGroup::SG_TYPE_SRU);
+      RepeatingUnit &s = (RepeatingUnit &)mol.sgroups.getSGroup(idx);
       _readGeneralSGroup(s);
+
+      if (version >= 2)
+         _readString(s.subscript);
+      else
+         s.subscript.readString("n", true);
+
       s.connectivity = _scanner->readPackedUInt();
    }
    else if (code == CMF_MULTIPLEGROUP)
    {
-      int idx = mol.multiple_groups.add();
-      BaseMolecule::MultipleGroup &s = mol.multiple_groups[idx];
+      idx = mol.sgroups.addSGroup(SGroup::SG_TYPE_MUL);
+      MultipleGroup &s = (MultipleGroup &)mol.sgroups.getSGroup(idx);
       _readGeneralSGroup(s);
+
       _readUIntArray(s.parent_atoms);
       s.multiplier = _scanner->readPackedUInt();
    }
    else if (code == CMF_GENERICSGROUP)
    {
-      int idx = mol.generic_sgroups.add();
-      _readGeneralSGroup(mol.generic_sgroups[idx]);
+      idx = mol.sgroups.addSGroup(SGroup::SG_TYPE_GEN);
+      SGroup &s = (SGroup &)mol.sgroups.getSGroup(idx);
+      _readGeneralSGroup(s);
    }
    else
       throw Error("_readExtSection: unexpected SGroup code: %d", code);
 
-   _sgroup_order.push(code);
+   _sgroup_order.push(idx);
 }
 
 float CmfLoader::_readFloatInRange (Scanner &scanner, float min, float range)
@@ -767,7 +836,7 @@ void CmfLoader::_readDir2f (Scanner &scanner, Vec2f &dir, const CmfSaver::VecRan
 }
 
 
-void CmfLoader::_readBaseSGroupXyz (Scanner &scanner, BaseMolecule::SGroup &sgroup, const CmfSaver::VecRange &range)
+void CmfLoader::_readBaseSGroupXyz (Scanner &scanner, SGroup &sgroup, const CmfSaver::VecRange &range)
 {
    int len = scanner.readPackedUInt();
    sgroup.brackets.resize(len);
@@ -778,40 +847,37 @@ void CmfLoader::_readBaseSGroupXyz (Scanner &scanner, BaseMolecule::SGroup &sgro
    }
 }
 
-void CmfLoader::_readSGroupXYZ (Scanner &scanner, int code, int idx_array[5], Molecule &mol, const CmfSaver::VecRange &range)
+void CmfLoader::_readSGroupXYZ (Scanner &scanner, int idx, Molecule &mol, const CmfSaver::VecRange &range)
 {
-   if (code == CMF_DATASGROUP)
+   SGroup &sg = mol.sgroups.getSGroup(idx);
+   int sg_type = sg.sgroup_type;
+
+   if (sg_type == SGroup::SG_TYPE_DAT)
    {
-      int idx = idx_array[0]++;
-      BaseMolecule::DataSGroup &s = mol.data_sgroups[idx];
+      DataSGroup &s = (DataSGroup &)sg;
       _readBaseSGroupXyz(scanner, s, range);
       _readVec2f(scanner, s.display_pos, range);
    }
-   else if (code == CMF_SUPERATOM)
+   else if (sg_type == SGroup::SG_TYPE_SUP)
    {
-      int idx = idx_array[1]++;
-      BaseMolecule::Superatom &s = mol.superatoms[idx];
+      Superatom &s = (Superatom &)sg;
       _readBaseSGroupXyz(scanner, s, range);
-      if (s.bond_idx != -1)
-         _readDir2f(scanner, s.bond_dir, range);
+      if (s.bond_connections.size() > 0)
+      {
+         for (int j = 0; j < s.bond_connections.size(); j++)
+         {
+            _readDir2f(scanner, s.bond_connections[j].bond_dir, range);
+         }
+      }
    }
-   else if (code == CMF_REPEATINGUNIT)
+   else if ( (sg_type == SGroup::SG_TYPE_SRU) || 
+             (sg_type == SGroup::SG_TYPE_MUL) ||
+             (sg_type == SGroup::SG_TYPE_GEN) )
    {
-      int idx = idx_array[2]++;
-      _readBaseSGroupXyz(scanner, mol.repeating_units[idx], range);
-   }
-   else if (code == CMF_MULTIPLEGROUP)
-   {
-      int idx = idx_array[3]++;
-      _readBaseSGroupXyz(scanner, mol.multiple_groups[idx], range);
-   }
-   else if (code == CMF_GENERICSGROUP)
-   {
-      int idx = idx_array[4]++;
-      _readBaseSGroupXyz(scanner, mol.generic_sgroups[idx], range);
+      _readBaseSGroupXyz(scanner, sg, range);
    }
    else
-      throw Error("_readExtSection: unexpected SGroup code: %d", code);
+      throw Error("_readExtSection: unexpected SGroup type: %d", sg_type);
 }
 
 
@@ -831,7 +897,7 @@ void CmfLoader::_readUIntArray (Array<int> &dest)
       dest[i] = _scanner->readPackedUInt();
 }
  
-void CmfLoader::_readGeneralSGroup (BaseMolecule::SGroup &sgroup)
+void CmfLoader::_readGeneralSGroup (SGroup &sgroup)
 {
    _readUIntArray(sgroup.atoms);
    _readUIntArray(sgroup.bonds);
@@ -864,6 +930,13 @@ void CmfLoader::_readExtSection (Molecule &mol)
             mol.setRSiteAttachmentOrder(idx, idx2, i);
          }
       }
+      else if (code == CMF_MAPPING)
+      {
+         // atom_mapping_to_restore
+         _readUIntArray(atom_mapping_to_restore);
+         _readUIntArray(bond_mapping_to_restore);
+         has_mapping = true;
+      }
       else
          throw Error("unexpected code: %d", code);
    }
@@ -892,14 +965,16 @@ void CmfLoader::loadXyz (Scanner &scanner)
    {
       Vec3f pos;
       _readVec3f(scanner, pos, range);
+      int idx = i;
+      if (has_mapping)
+         idx = inv_atom_mapping_to_restore[i];
 
-      _mol->setAtomXyz(i, pos.x, pos.y, pos.z);
+      _mol->setAtomXyz(idx, pos.x, pos.y, pos.z);
    }
 
    // Read sgroup coordinates data
-   int idx[5] = {0};
    for (int i = 0; i < _sgroup_order.size(); i++)
-      _readSGroupXYZ(scanner, _sgroup_order[i], idx, *_mol, range);
+      _readSGroupXYZ(scanner, _sgroup_order[i], *_mol, range);
 
    _mol->have_xyz = true;
 }

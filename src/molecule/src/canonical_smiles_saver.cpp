@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -12,25 +12,39 @@
  * WARRANTY OF DESIGN, MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  ***************************************************************************/
 
-#include "molecule/molecule.h"
 #include "molecule/canonical_smiles_saver.h"
+
+#include "base_cpp/output.h"
+#include "base_cpp/tlscont.h"
+#include "molecule/molecule.h"
 #include "molecule/smiles_saver.h"
 #include "molecule/molecule_automorphism_search.h"
 #include "molecule/elements.h"
+#include "molecule/molecule_dearom.h"
 
 using namespace indigo;
 
-CanonicalSmilesSaver::CanonicalSmilesSaver (Output &output) : _output(output)
+IMPL_ERROR(CanonicalSmilesSaver, "canonical SMILES saver");
+
+CanonicalSmilesSaver::CanonicalSmilesSaver (Output &output) : SmilesSaver(output),
+TL_CP_GET(_actual_atom_atom_mapping),
+TL_CP_GET(_initial_to_actual)
 {
    find_invalid_stereo = true;
    ignore_invalid_hcount = false;
+   ignore_hydrogens = true;
+   canonize_chiralities = true;
+   initial_atom_atom_mapping = 0;
+   _initial_to_actual.clear();
+   _initial_to_actual.insert(0, 0);
+   _aam_counter = 0;
 }
 
 CanonicalSmilesSaver::~CanonicalSmilesSaver ()
 {
 }
 
-void CanonicalSmilesSaver::saveMolecule (Molecule &mol_) const
+void CanonicalSmilesSaver::saveMolecule (Molecule &mol_)
 {
    if (mol_.vertexCount() < 1)
       return;
@@ -39,10 +53,15 @@ void CanonicalSmilesSaver::saveMolecule (Molecule &mol_) const
    QS_DEF(Array<int>, order);
    QS_DEF(Array<int>, ranks);
    QS_DEF(Molecule, mol);
+
    int i;
 
-   if (mol_.repeating_units.size() > 0)
+   if (mol_.sgroups.isPolimer())
       throw Error("can not canonicalize a polymer");
+
+   // Detect hydrogens configuration if aromatic but not ambiguous
+   // We can store this infromation in the original structure mol_.
+   mol_.restoreAromaticHydrogens();
 
    mol.clone(mol_, 0, 0);
 
@@ -56,42 +75,18 @@ void CanonicalSmilesSaver::saveMolecule (Molecule &mol_) const
       if (mol.convertableToImplicitHydrogen(i))
          ignored[i] = 1;
 
-   for (i = mol.edgeBegin(); i != mol.edgeEnd(); i = mol.edgeNext(i))
-      if (mol.getBondTopology(i) == TOPOLOGY_RING && mol.cis_trans.getParity(i) != 0)
-      {
-         // we save cis/trans ring bonds into SMILES, but only those who
-         // do not participate in bigger ring systems
-         const Edge &edge = mol.getEdge(i);
-
-         if (mol.getAtomRingBondsCount(edge.beg) != 2 ||
-             mol.getAtomRingBondsCount(edge.end) != 2)
-         {
-            mol.cis_trans.setParity(i, 0);
-            continue;
-         }
-
-         // also, discard the cis-trans bonds that have been converted to aromatic
-         const Vertex &beg = mol.getVertex(edge.beg);
-         const Vertex &end = mol.getVertex(edge.end);
-         bool have_singlebond_beg = false;
-         bool have_singlebond_end = false;
-         int j;
-         
-         for (j = beg.neiBegin(); j != beg.neiEnd(); j = beg.neiNext(j))
-            if (mol.getBondOrder(beg.neiEdge(j)) == BOND_SINGLE)
-               have_singlebond_beg = true;
-
-         for (j = end.neiBegin(); j != end.neiEnd(); j = end.neiNext(j))
-            if (mol.getBondOrder(end.neiEdge(j)) == BOND_SINGLE)
-               have_singlebond_end = true;
-
-         if (!have_singlebond_beg || !have_singlebond_end)
-         {
-            mol.cis_trans.setParity(i, 0);
-            continue;
-         }
-      }
-         
+   // Try to save into ordinary smiles and find what cis-trans bonds were used
+   NullOutput null_output;
+   SmilesSaver saver_cistrans(null_output);
+   saver_cistrans.ignore_hydrogens = true;
+   saver_cistrans.saveMolecule(mol);
+   // Then reset cis-trans infromation that is not saved into SMILES
+   const Array<int>& parities = saver_cistrans.getSavedCisTransParities();
+   for (i = mol.edgeBegin(); i < mol.edgeEnd(); i = mol.edgeNext(i))
+   {
+      if (mol.cis_trans.getParity(i) != 0 && parities[i] == 0)
+         mol.cis_trans.setParity(i, 0);
+   }
 
    MoleculeAutomorphismSearch of;
 
@@ -115,11 +110,29 @@ void CanonicalSmilesSaver::saveMolecule (Molecule &mol_) const
    for (i = 0; i < order.size(); i++)
       ranks[order[i]] = i;
 
-   SmilesSaver saver(_output);
+   vertex_ranks = ranks.ptr();
 
-   saver.ignore_invalid_hcount = ignore_invalid_hcount;
-   saver.vertex_ranks = ranks.ptr();
-   saver.ignore_hydrogens = true;
-   saver.canonize_chiralities = true;
-   saver.saveMolecule(mol);
+   if (initial_atom_atom_mapping) {
+      _actual_atom_atom_mapping.clear_resize(initial_atom_atom_mapping->size());
+      _actual_atom_atom_mapping.fill(0);
+
+      for (int i = 0; i < order.size(); ++i) {
+         int aam = initial_atom_atom_mapping->at(order[i]);
+         if (aam) {
+            if (!_initial_to_actual.find(aam)) {
+               _initial_to_actual.insert(aam, ++_aam_counter);
+               _actual_atom_atom_mapping[order[i]] = _aam_counter;
+            }
+            else {
+               _actual_atom_atom_mapping[order[i]] = _initial_to_actual.at(aam);
+            }
+         }
+      }
+      atom_atom_mapping = _actual_atom_atom_mapping.ptr();
+   }
+   else {
+      atom_atom_mapping = 0;
+   }
+
+   SmilesSaver::saveMolecule(mol);
 }

@@ -1,3 +1,5 @@
+#include "bingo_pg_fix_pre.h"
+
 extern "C" {
 #include "postgres.h"
 #include "fmgr.h"
@@ -13,15 +15,7 @@ extern "C" {
 #include "utils/lsyscache.h"
 }
 
-#ifdef qsort
-#undef qsort
-#endif
-#ifdef printf
-#undef printf
-#endif
-#ifdef vprintf
-#undef vprintf
-#endif
+#include "bingo_pg_fix_post.h"
 
 #include "bingo_pg_common.h"
 #include "base_cpp/scanner.h"
@@ -40,12 +34,13 @@ extern "C" {
 
 
 extern "C" {
-PG_FUNCTION_INFO_V1(_internal_func_check);
-PGDLLEXPORT Datum _internal_func_check(PG_FUNCTION_ARGS);
+BINGO_FUNCTION_EXPORT(_internal_func_check);
 }
 
 
 using namespace indigo;
+
+IMPL_ERROR(BingoPgCommon, "bingo postgres");
 
 void BingoPgCommon::getSearchTypeString(int type, indigo::Array<char>& result, bool molecule) {
    result.clear();
@@ -142,7 +137,7 @@ int BingoPgCommon::executeQuery(indigo::Array<char>& query_str) {
 
       SPI_finish();
       if (success < 0) {
-         throw BingoPgError("error (%d) while executing query: %s res", success, query_str.ptr());
+         elog(ERROR, "error (%d) while executing query: %s res", success, query_str.ptr());
       }
    }
    BINGO_PG_HANDLE(throw BingoPgError("internal error: can not execute query: %s", message));

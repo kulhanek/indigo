@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -29,6 +29,8 @@
 #include "base_cpp/profiling.h"
 #include "base_cpp/ptr_pool.h"
 
+IMPL_ERROR(MangoSubstructure, "substructure");
+
 MangoSubstructure::MangoSubstructure (BingoContext &context) :
 _context(context)
 {
@@ -43,9 +45,7 @@ void MangoSubstructure::loadQuery (Scanner &scanner)
    MoleculeAutoLoader loader(scanner);
    QS_DEF(QueryMolecule, source);
 
-   loader.treat_x_as_pseudoatom = _context.treat_x_as_pseudoatom;
-   loader.ignore_closing_bond_direction_mismatch =
-           _context.ignore_closing_bond_direction_mismatch;
+   _context.setLoaderSettings(loader);
    loader.loadQueryMolecule(source);
 
    if (!source.have_xyz && match_3d != 0)
@@ -61,8 +61,7 @@ void MangoSubstructure::loadSMARTS (Scanner &scanner)
    SmilesLoader loader(scanner);
    QS_DEF(QueryMolecule, source);
 
-   loader.ignore_closing_bond_direction_mismatch =
-           _context.ignore_closing_bond_direction_mismatch;
+   _context.setLoaderSettings(loader);
    loader.loadSMARTS(source);
 
    if (!source.have_xyz && match_3d != 0)
@@ -155,10 +154,7 @@ void MangoSubstructure::loadTarget (const char *target)
 void MangoSubstructure::loadTarget (Scanner &scanner)
 {
    MoleculeAutoLoader loader(scanner);
-
-   loader.treat_x_as_pseudoatom = _context.treat_x_as_pseudoatom;
-   loader.ignore_closing_bond_direction_mismatch =
-           _context.ignore_closing_bond_direction_mismatch;
+   _context.setLoaderSettings(loader);
    loader.loadMolecule(_target);
    _initTarget(false);
    Molecule::checkForConsistency(_target);
@@ -268,7 +264,7 @@ void MangoSubstructure::_initQuery (QueryMolecule &query_in, QueryMolecule &quer
 {
    _correctQueryStereo(query_in);
 
-   QueryMoleculeAromatizer::aromatizeBonds(query_in);
+   QueryMoleculeAromatizer::aromatizeBonds(query_in, AromaticityOptions::BASIC);
    _nei_query_counters.calculate(query_in);
 
    QS_DEF(Array<int>, transposition);
@@ -295,7 +291,7 @@ void MangoSubstructure::_initTarget (bool from_database)
       Molecule::saveBondOrders(_target, _target_bond_types);
 
    if (!from_database)
-      MoleculeAromatizer::aromatizeBonds(_target);
+      MoleculeAromatizer::aromatizeBonds(_target, AromaticityOptions::BASIC);
 
    _nei_target_counters.calculate(_target);
 } 

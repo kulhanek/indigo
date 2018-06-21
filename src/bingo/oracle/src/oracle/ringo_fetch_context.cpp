@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -19,6 +19,8 @@
 
 TL_DEF(RingoFetchContext, PtrArray<RingoFetchContext>, _instances);
 OsLock RingoFetchContext::_instances_lock;
+
+IMPL_ERROR(RingoFetchContext, "ringo fetch context");
 
 RingoFetchContext::RingoFetchContext (int id_, RingoOracleContext &context,
                                       const Array<char> &query_id) :
@@ -64,9 +66,6 @@ RingoFetchContext & RingoFetchContext::create (RingoOracleContext &context,
    const BingoOracleContext &boc = context.context();
 
    new_context->id = id;
-   new_context->substructure.treat_x_as_pseudoatom = boc.treat_x_as_pseudoatom;
-   new_context->substructure.ignore_closing_bond_direction_mismatch =
-           boc.ignore_closing_bond_direction_mismatch;
 
    _instances.add(new_context.release());
    return *_instances.top();

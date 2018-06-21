@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -34,6 +34,8 @@ DLLEXPORT int   bitTestEqualityByMask (const void *bits1, const void *bits2,
 DLLEXPORT int   bitGetAandBxorNotC (const void *a, const void *b, const void *c, void *res, int nbits);
 // Get number of ones
 DLLEXPORT int   bitGetOnesCountByte (byte value);
+DLLEXPORT int   bitGetOnesCountQword (qword value);
+DLLEXPORT int   bitGetOnesCountDword (dword value);
 DLLEXPORT int   bitGetOnesCount (const byte *data, int size);
 // Get high-order 1-bit in byte
 DLLEXPORT int   bitGetOneHOIndex  (byte value);
@@ -55,6 +57,8 @@ DLLEXPORT void bitOr (byte *a, const byte *b, int nbytes);
 
 // Check whether bit array is zero
 DLLEXPORT int bitIsAllZero (const void *bits, int nbytes);
+
+DLLEXPORT int bitLog2Dword (dword input);
 
 #ifdef __cplusplus
 }

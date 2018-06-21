@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  *
  * This file is part of Indigo toolkit.
  *
@@ -13,6 +13,7 @@
  ***************************************************************************/
 
 #include "base_cpp/output.h"
+#include "base_cpp/scanner.h"
 #include "molecule/molecule.h"
 #include "molecule/query_molecule.h"
 #include "reaction/reaction.h"
@@ -21,6 +22,8 @@
 #include "render_internal.h"
 
 using namespace indigo;
+
+#define BOND_STEREO_BOLD 10001
 
 static bool ElementHygrodenOnLeft[] =
 {
@@ -153,9 +156,12 @@ void RenderOptions::clear()
    highlightColor.set(1, 0, 0);
    aamColor.set(0, 0, 0);
    commentFontFactor = 20;
+   commentSpacing = 0.5;
    titleFontFactor = 20;
+   titleSpacing = 0.5;
    labelMode = LABEL_MODE_TERMINAL_HETERO;
    highlightedLabelsVisible = false;
+   boldBondDetection = true;
    implHVisible = true;
    commentColor.set(0,0,0);
    titleColor.set(0,0,0);
@@ -176,10 +182,15 @@ void RenderOptions::clear()
    showCycles = false;
    agentsBelowArrow = true;
    collapseSuperatoms = false;
+   atomColorProp.clear();
 }
 
+IMPL_ERROR(MoleculeRenderInternal, "molecule render internal");
+
+CP_DEF(MoleculeRenderInternal);
+
 MoleculeRenderInternal::MoleculeRenderInternal (const RenderOptions& opt, const RenderSettings& settings, RenderContext& cw) :
-_mol(NULL), _cw(cw), _settings(settings), _opt(opt), TL_CP_GET(_data), TL_CP_GET(_atomMapping), TL_CP_GET(_atomMappingInv), TL_CP_GET(_bondMappingInv), isRFragment(false)
+_mol(NULL), _cw(cw), _settings(settings), _opt(opt), CP_INIT, TL_CP_GET(_data), TL_CP_GET(_atomMapping), TL_CP_GET(_atomMappingInv), TL_CP_GET(_bondMappingInv), isRFragment(false)
 {
    _data.clear();
    _atomMapping.clear();
@@ -193,7 +204,8 @@ void MoleculeRenderInternal::setMolecule (BaseMolecule* mol)
    _data.clear();
    _atomMapping.clear();
 
-   if ((_opt.collapseSuperatoms && _mol->superatoms.size() > 0) || _mol->multiple_groups.size() > 0) {
+   if ((_opt.collapseSuperatoms && _mol->sgroups.getSGroupCount(SGroup::SG_TYPE_SUP) > 0) ||
+       _mol->sgroups.getSGroupCount(SGroup::SG_TYPE_MUL) > 0) {
       _prepareSGroups();
    }
 
@@ -258,6 +270,8 @@ void MoleculeRenderInternal::render ()
    _initBondEndData();
 
    _findNeighbors();
+
+   _initBoldStereoBonds();
 
    _findRings();
 
@@ -548,33 +562,77 @@ void MoleculeRenderInternal::_initRGroups()
    }
 }
 
+int MoleculeRenderInternal::_parseColorString (Scanner& scanner, float& r, float& g, float& b)
+{
+   if (!scanner.tryReadFloat(r))
+      return -1;
+   scanner.skipSpace();
+   if (scanner.isEOF())
+      return -1;
+   if (scanner.readChar() != ',')
+      return -1;
+   scanner.skipSpace();
+   if (!scanner.tryReadFloat(g))
+      return -1;
+   scanner.skipSpace();
+   if (scanner.isEOF())
+      return -1;
+   if (scanner.readChar() != ',')
+      return -1;
+   scanner.skipSpace();
+   if (!scanner.tryReadFloat(b))
+      return -1;
+   return 1;
+}
+
 void MoleculeRenderInternal::_initDataSGroups()
 {
    BaseMolecule& bm = *_mol;
-   for (int i = bm.data_sgroups.begin(); i < bm.data_sgroups.end(); i = bm.data_sgroups.next(i)) {
-      SGroup& sg = _data.sgroups.push();
-      const BaseMolecule::DataSGroup& group = bm.data_sgroups[i];
-      int tii = _pushTextItem(sg, RenderItem::RIT_DATASGROUP);
-      TextItem& ti = _data.textitems[tii];
-      ti.text.copy(group.data);
-      ti.text.push(0);
-      ti.fontsize = FONT_SIZE_DATA_SGROUP;
-      _cw.setTextItemSize(ti);
-      const AtomDesc& ad = _ad(group.atoms[0]);
-      if (!group.detached) {
-         ti.bbp.copy(_ad(group.atoms[0]).pos);
-         ti.bbp.x += ad.boundBoxMax.x + _settings.bondLineWidth * 2;
-         ti.bbp.y -= ti.bbsz.y/2;
-      } else if (group.relative) {
-         _objDistTransform(ti.bbp, group.display_pos);
-         ti.bbp.add(_ad(group.atoms[0]).pos);
-      } else {
-         _objCoordTransform(ti.bbp, group.display_pos);
+   const char* atomColorProp = _opt.atomColorProp.size() > 0 ? _opt.atomColorProp.ptr() : NULL;
+
+   for (int i = bm.sgroups.begin(); i != bm.sgroups.end(); i = bm.sgroups.next(i))
+   {
+      SGroup &sgroup = bm.sgroups.getSGroup(i);
+      if (sgroup.sgroup_type == SGroup::SG_TYPE_DAT)
+      {
+         const DataSGroup& group = (DataSGroup &)sgroup;
+         if (atomColorProp != NULL && strcmp(atomColorProp, group.name.ptr()) == 0) {
+            Vec3f color;
+            BufferScanner scanner(group.data);
+            if (_parseColorString(scanner, color.x, color.y, color.z) < 0)
+               throw Error("Color value format invalid");
+            for (int j = 0; j < group.atoms.size(); ++j) {
+               AtomDesc& ad = _ad(group.atoms[j]);
+               if (ad.hcolorSet)
+                  throw Error("An atom belongs to more then one color group");
+               ad.hcolor.copy(color);
+               ad.hcolorSet = true;
+            }
+            continue;
+         }
+         Sgroup& sg = _data.sgroups.push();
+         int tii = _pushTextItem(sg, RenderItem::RIT_DATASGROUP);
+         TextItem& ti = _data.textitems[tii];
+         ti.text.copy(group.data);
+         ti.text.push(0);
+         ti.fontsize = FONT_SIZE_DATA_SGROUP;
+         _cw.setTextItemSize(ti);
+         const AtomDesc& ad = _ad(group.atoms[0]);
+         if (!group.detached) {
+            ti.bbp.copy(_ad(group.atoms[0]).pos);
+            ti.bbp.x += ad.boundBoxMax.x + _settings.unit * 2;
+            ti.bbp.y -= ti.bbsz.y/2;
+         } else if (group.relative) {
+            _objDistTransform(ti.bbp, group.display_pos);
+            ti.bbp.add(_ad(group.atoms[0]).pos);
+         } else {
+            _objCoordTransform(ti.bbp, group.display_pos);
+         }
       }
    }
 }
 
-void MoleculeRenderInternal::_loadBrackets(SGroup& sg, const Array<Vec2f[2]>& coord, bool transformCoordinates)
+void MoleculeRenderInternal::_loadBrackets(Sgroup& sg, const Array<Vec2f[2]>& coord, bool transformCoordinates)
 {
    for (int j = 0; j < coord.size(); ++j) {
       Vec2f a(coord[j][0]), b(coord[j][1]);
@@ -604,21 +662,21 @@ void MoleculeRenderInternal::_loadBrackets(SGroup& sg, const Array<Vec2f[2]>& co
    }
 }
 
-void MoleculeRenderInternal::_loadBracketsAuto(const BaseMolecule::SGroup& group, SGroup& sg) {
+void MoleculeRenderInternal::_loadBracketsAuto(const SGroup& group, Sgroup& sg) {
    if (group.brackets.size() == 0 || Vec2f::distSqr(group.brackets.at(0)[0], group.brackets.at(0)[1]) < EPSILON)
       _placeBrackets(sg, group.atoms);
    else
       _loadBrackets(sg, group.brackets, true);
 }
 
-void MoleculeRenderInternal::_positionIndex(SGroup& sg, int ti, bool lower)
+void MoleculeRenderInternal::_positionIndex(Sgroup& sg, int ti, bool lower)
 {
    RenderItemBracket& bracket = _data.brackets[sg.bibegin + sg.bicount - 1];
    TextItem& index = _data.textitems[ti];
    if (bracket.invertUpperLowerIndex)
       lower = !lower;
    _cw.setTextItemSize(index, lower ? bracket.p1 : bracket.p0);
-   float xShift = (fabs(index.bbsz.x * bracket.n.x) + fabs(index.bbsz.y * bracket.n.y)) / 2 + _settings.bondLineWidth;
+   float xShift = (fabs(index.bbsz.x * bracket.n.x) + fabs(index.bbsz.y * bracket.n.y)) / 2 + _settings.unit;
    float yShift = (fabs(index.bbsz.x * bracket.d.x) + fabs(index.bbsz.y * bracket.d.y)) / 2;
    index.bbp.addScaled(bracket.n, -xShift);
    index.bbp.addScaled(bracket.d, lower ? -yShift : yShift);
@@ -627,25 +685,30 @@ void MoleculeRenderInternal::_positionIndex(SGroup& sg, int ti, bool lower)
 void MoleculeRenderInternal::_initSruGroups()
 {
    BaseMolecule& bm = *_mol;
-   for (int i = bm.repeating_units.begin(); i < bm.repeating_units.end(); i = bm.repeating_units.next(i)) {
-      const BaseMolecule::RepeatingUnit& group = bm.repeating_units[i];
-      SGroup& sg = _data.sgroups.push();
-      _loadBracketsAuto(group, sg);
-      int tiIndex = _pushTextItem(sg, RenderItem::RIT_SGROUP);
-      TextItem& index = _data.textitems[tiIndex];
-      index.fontsize = FONT_SIZE_ATTR;
-      bprintf(index.text, "n");
-      _positionIndex(sg, tiIndex, true);
-      if (group.connectivity != BaseMolecule::RepeatingUnit::HEAD_TO_TAIL) {
-         int tiConn = _pushTextItem(sg, RenderItem::RIT_SGROUP);
-         TextItem& conn = _data.textitems[tiConn];
-         conn.fontsize = FONT_SIZE_ATTR;
-         if (group.connectivity == BaseMolecule::RepeatingUnit::HEAD_TO_HEAD) {
-            bprintf(conn.text, "hh");
-         } else {
-            bprintf(conn.text, "eu");
+   for (int i = bm.sgroups.begin(); i != bm.sgroups.end(); i = bm.sgroups.next(i))
+   {
+      SGroup &sgroup = bm.sgroups.getSGroup(i);
+      if (sgroup.sgroup_type == SGroup::SG_TYPE_SRU)
+      {
+         const RepeatingUnit& group = (RepeatingUnit &)sgroup;
+         Sgroup& sg = _data.sgroups.push();
+         _loadBracketsAuto(group, sg);
+         int tiIndex = _pushTextItem(sg, RenderItem::RIT_SGROUP);
+         TextItem& index = _data.textitems[tiIndex];
+         index.fontsize = FONT_SIZE_ATTR;
+         bprintf(index.text, group.subscript.size() > 0 ? group.subscript.ptr() : "n");
+         _positionIndex(sg, tiIndex, true);
+         if (group.connectivity != RepeatingUnit::HEAD_TO_TAIL) {
+            int tiConn = _pushTextItem(sg, RenderItem::RIT_SGROUP);
+            TextItem& conn = _data.textitems[tiConn];
+            conn.fontsize = FONT_SIZE_ATTR;
+            if (group.connectivity == RepeatingUnit::HEAD_TO_HEAD) {
+               bprintf(conn.text, "hh");
+            } else {
+               bprintf(conn.text, "eu");
+            }
+            _positionIndex(sg, tiConn, false);
          }
-         _positionIndex(sg, tiConn, false);
       }
    }
 }
@@ -653,19 +716,24 @@ void MoleculeRenderInternal::_initSruGroups()
 void MoleculeRenderInternal::_initMulGroups()
 {
    BaseMolecule& bm = *_mol;
-   for (int i = bm.multiple_groups.begin(); i < bm.multiple_groups.end(); i = bm.multiple_groups.next(i)) {
-      const BaseMolecule::MultipleGroup& group = bm.multiple_groups[i];
-      SGroup& sg = _data.sgroups.push();
-      _loadBracketsAuto(group, sg);
-      int tiIndex = _pushTextItem(sg, RenderItem::RIT_SGROUP);
-      TextItem& index = _data.textitems[tiIndex];
-      index.fontsize = FONT_SIZE_ATTR;
-      bprintf(index.text, "%d", group.multiplier);
-      _positionIndex(sg, tiIndex, true);
+   for (int i = bm.sgroups.begin(); i != bm.sgroups.end(); i = bm.sgroups.next(i))
+   {
+      SGroup &sgroup = bm.sgroups.getSGroup(i);
+      if (sgroup.sgroup_type == SGroup::SG_TYPE_MUL)
+      {
+         const MultipleGroup& group = (MultipleGroup &)sgroup;
+         Sgroup& sg = _data.sgroups.push();
+         _loadBracketsAuto(group, sg);
+         int tiIndex = _pushTextItem(sg, RenderItem::RIT_SGROUP);
+         TextItem& index = _data.textitems[tiIndex];
+         index.fontsize = FONT_SIZE_ATTR;
+         bprintf(index.text, "%d", group.multiplier);
+         _positionIndex(sg, tiIndex, true);
+      }
    }
 }
 
-void MoleculeRenderInternal::_placeBrackets(SGroup& sg, const Array<int>& atoms)
+void MoleculeRenderInternal::_placeBrackets(Sgroup& sg, const Array<int>& atoms)
 {
    QS_DEF(Array<Vec2f[2]>, brackets);
    brackets.clear();
@@ -683,7 +751,7 @@ void MoleculeRenderInternal::_placeBrackets(SGroup& sg, const Array<int>& atoms)
          max.max(b);
       }
    }
-   float extent = _settings.bondLineWidth * 3;
+   float extent = _settings.unit * 3;
    min.sub(Vec2f(extent, extent));
    max.add(Vec2f(extent, extent));
    Vec2f* const & left = brackets.push();
@@ -698,15 +766,20 @@ void MoleculeRenderInternal::_placeBrackets(SGroup& sg, const Array<int>& atoms)
 void MoleculeRenderInternal::_initSupGroups()
 {
    BaseMolecule& bm = *_mol;
-   for (int i = bm.superatoms.begin(); i < bm.superatoms.end(); i = bm.superatoms.next(i)) {
-      const BaseMolecule::Superatom& group = bm.superatoms[i];
-      SGroup& sg = _data.sgroups.push();
-      _placeBrackets(sg, group.atoms);
-      int tiIndex = _pushTextItem(sg, RenderItem::RIT_SGROUP);
-      TextItem& index = _data.textitems[tiIndex];
-      index.fontsize = FONT_SIZE_ATTR;
-      bprintf(index.text, "%s", group.subscript.ptr());
-      _positionIndex(sg, tiIndex, true);
+   for (int i = bm.sgroups.begin(); i != bm.sgroups.end(); i = bm.sgroups.next(i))
+   {
+      SGroup &sgroup = bm.sgroups.getSGroup(i);
+      if (sgroup.sgroup_type == SGroup::SG_TYPE_SUP)
+      {
+         const Superatom& group = (Superatom &)sgroup;
+         Sgroup& sg = _data.sgroups.push();
+         _placeBrackets(sg, group.atoms);
+         int tiIndex = _pushTextItem(sg, RenderItem::RIT_SGROUP);
+         TextItem& index = _data.textitems[tiIndex];
+         index.fontsize = FONT_SIZE_ATTR;
+         bprintf(index.text, "%s", group.subscript.ptr());
+         _positionIndex(sg, tiIndex, true);
+      }
    }
 }
 
@@ -728,71 +801,82 @@ void MoleculeRenderInternal::_prepareSGroups()
 
    BaseMolecule& bm = *_mol;
    if (_opt.collapseSuperatoms) {
-      for (int i = bm.superatoms.begin(); i < bm.superatoms.end(); i = bm.superatoms.next(i)) {
-         const BaseMolecule::Superatom& group = bm.superatoms[i];
-         Vec3f centre;
-         for (int i = 0; i < group.atoms.size(); ++i) {
-            int aid = group.atoms[i];
-            centre.add(bm.getAtomXyz(aid));
-         }
-         centre.scale(1.0f / group.atoms.size());
-         int said = -1;
-
-         if (bm.isQueryMolecule()) {
-            AutoPtr<QueryMolecule::Atom> atom;
-            atom.reset(new QueryMolecule::Atom(QueryMolecule::ATOM_PSEUDO, group.subscript.ptr()));
-            said = bm.asQueryMolecule().addAtom(atom.release());
-         } else {
-            Molecule& mol = bm.asMolecule();
-            said = mol.addAtom(ELEM_PSEUDO);
-            mol.setPseudoAtom(said, group.subscript.ptr());
-         }
-         QS_DEF(RedBlackSet<int>, groupAtoms);
-         groupAtoms.clear();
-         for (int j = 0; j < group.atoms.size(); ++j) {
-            groupAtoms.insert(group.atoms[j]);
-         }
-         Vec3f pos;
-         int posCnt = 0;
-         while (group.atoms.size() > 0) {
-            int aid = group.atoms[0];
-            const Vertex& v = bm.getVertex(aid);
-            bool posCounted = false;
-            for (int j = v.neiBegin(); j < v.neiEnd(); j = v.neiNext(j)) {
-               int naid = v.neiVertex(j);
-               if (!groupAtoms.find(naid)) {
-                  pos.add(bm.getAtomXyz(aid));
-                  posCounted = true;
-                  posCnt++;
-                  int nbid = v.neiEdge(j), bid = -1;
-                  if (bm.findEdgeIndex(naid, said) < 0) {
-                     if (bm.isQueryMolecule()) {
-                        QueryMolecule& qm = bm.asQueryMolecule();
-                        bid = qm.addBond(said, naid, qm.getBond(nbid).clone());
-                     }else{
-                        Molecule& mol = bm.asMolecule();
-                        bid = mol.addBond(said, naid, mol.getBondOrder(nbid));
-                        mol.setEdgeTopology(bid, mol.getBondTopology(nbid));
+      for (int i = bm.sgroups.begin(); i != bm.sgroups.end(); i = bm.sgroups.next(i))
+      {
+         SGroup &sgroup = bm.sgroups.getSGroup(i);
+         if (sgroup.sgroup_type == SGroup::SG_TYPE_SUP)
+         {
+            const Superatom& group = (Superatom &)sgroup;
+            Vec3f centre;
+            for (int i = 0; i < group.atoms.size(); ++i) {
+               int aid = group.atoms[i];
+               centre.add(bm.getAtomXyz(aid));
+            }
+            centre.scale(1.0f / group.atoms.size());
+            int said = -1;
+   
+            if (bm.isQueryMolecule()) {
+               AutoPtr<QueryMolecule::Atom> atom;
+               atom.reset(new QueryMolecule::Atom(QueryMolecule::ATOM_PSEUDO, group.subscript.ptr()));
+               said = bm.asQueryMolecule().addAtom(atom.release());
+            } else {
+               Molecule& mol = bm.asMolecule();
+               said = mol.addAtom(ELEM_PSEUDO);
+               mol.setPseudoAtom(said, group.subscript.ptr());
+            }
+            QS_DEF(RedBlackSet<int>, groupAtoms);
+            groupAtoms.clear();
+            for (int j = 0; j < group.atoms.size(); ++j) {
+               groupAtoms.insert(group.atoms[j]);
+            }
+            Vec3f pos;
+            int posCnt = 0;
+            while (group.atoms.size() > 0) {
+               int aid = group.atoms[0];
+               const Vertex& v = bm.getVertex(aid);
+               bool posCounted = false;
+               for (int j = v.neiBegin(); j < v.neiEnd(); j = v.neiNext(j)) {
+                  int naid = v.neiVertex(j);
+                  if (!groupAtoms.find(naid)) {
+                     pos.add(bm.getAtomXyz(aid));
+                     posCounted = true;
+                     posCnt++;
+                     int nbid = v.neiEdge(j), bid = -1;
+                     if (bm.findEdgeIndex(naid, said) < 0) {
+                        if (bm.isQueryMolecule()) {
+                           QueryMolecule& qm = bm.asQueryMolecule();
+                           bid = qm.addBond(said, naid, qm.getBond(nbid).clone());
+                        }else{
+                           Molecule& mol = bm.asMolecule();
+                           bid = mol.addBond(said, naid, mol.getBondOrder(nbid));
+                           mol.setEdgeTopology(bid, mol.getBondTopology(nbid));
+                        }
+                        if (_bondMappingInv.find(bid))
+                           _bondMappingInv.remove(bid);
+                        _bondMappingInv.insert(bid, _bondMappingInv.at(nbid));
                      }
-                     _bondMappingInv.remove(bid);
-                     _bondMappingInv.insert(bid, _bondMappingInv.at(nbid));
                   }
                }
+               bm.removeAtom(aid);
             }
-            bm.removeAtom(aid);
+            if (posCnt == 0)
+               pos.copy(centre);
+            else
+               pos.scale(1.f / posCnt);
+            bm.setAtomXyz(said, pos.x, pos.y, pos.z);
          }
-         if (posCnt == 0)
-            pos.copy(centre);
-         else
-            pos.scale(1.f / posCnt);
-         bm.setAtomXyz(said, pos.x, pos.y, pos.z);
       }
    }
 
    QS_DEF(BaseMolecule::Mapping, mapAtom);
    mapAtom.clear();
-   for (int i = bm.multiple_groups.begin(); i < bm.multiple_groups.end(); i = bm.multiple_groups.next(i)) {
-      BaseMolecule::MultipleGroup::collapse(bm, i, mapAtom, _bondMappingInv);
+   for (int i = bm.sgroups.begin(); i != bm.sgroups.end(); i = bm.sgroups.next(i))
+   {
+      SGroup &sgroup = bm.sgroups.getSGroup(i);
+      if (sgroup.sgroup_type == SGroup::SG_TYPE_MUL)
+      {
+         BaseMolecule::collapse(bm, i, mapAtom, _bondMappingInv);
+      }
    }
 }
 
@@ -1085,7 +1169,7 @@ void MoleculeRenderInternal::_findRings()
 
       if (_opt.showCycles)
       {
-         float cycleLineOffset = _settings.bondLineWidth * 9;
+         float cycleLineOffset = _settings.unit * 9;
          QS_DEF(Array<Vec2f>, vv);
          vv.clear();
          for (int j = 0; j < ring.bondEnds.size() + 1; ++j)
@@ -1098,7 +1182,7 @@ void MoleculeRenderInternal::_findRings()
             vv.push(v);
          }
          _cw.setSingleSource(CWC_BLUE);
-         _cw.setLineWidth(_settings.bondLineWidth);
+         _cw.setLineWidth(_settings.unit);
          _cw.drawPoly(vv);
       }
    }
@@ -1275,7 +1359,9 @@ bool MoleculeRenderInternal::_hasQueryModifiers (int aid)
    QUERY_MOL_BEGIN(_mol);
    QueryMolecule::Atom& qa = qmol.getAtom(aid);
    hasConstraints = qa.hasConstraint(QueryMolecule::ATOM_RING_BONDS) ||
+      qa.hasConstraint(QueryMolecule::ATOM_RING_BONDS_AS_DRAWN) ||
       qa.hasConstraint(QueryMolecule::ATOM_SUBSTITUENTS) ||
+      qa.hasConstraint(QueryMolecule::ATOM_SUBSTITUENTS_AS_DRAWN) ||
       qa.hasConstraint(QueryMolecule::ATOM_UNSATURATION) ||
       qa.hasConstraint(QueryMolecule::ATOM_TOTAL_H);
    QUERY_MOL_END;
@@ -1372,7 +1458,7 @@ int MoleculeRenderInternal::_hydroPosFindConflict(int i) {
       HYDRO_POS orientation = d.x < d.y ? (d.x > -d.y ? HYDRO_POS_DOWN : HYDRO_POS_LEFT) : (d.x > -d.y ? HYDRO_POS_RIGHT : HYDRO_POS_UP);
       float aDist = __max(fabs(d.x), fabs(d.y));
       float bDist = __min(fabs(d.x), fabs(d.y));
-      if (orientation == ad.hydroPos && bDist < _settings.neighboringAtomDistanceTresholdB && (aDist < _settings.neighboringAtomDistanceTresholdA || 
+      if (orientation == ad.hydroPos && bDist < _settings.neighboringAtomDistanceTresholdB && (aDist < _settings.neighboringAtomDistanceTresholdA ||
          (aDist < _settings.neighboringAtomDistanceTresholdA * 2 && _ad(aid).hydroPos == 3 - ad.hydroPos)))
          return orientation;
    }
@@ -1457,6 +1543,11 @@ void MoleculeRenderInternal::_initAtomData ()
          ad.type = AtomDesc::TYPE_PSEUDO;
          ad.pseudo.readString(bm.getPseudoAtom(i), true);
       }
+      else if (bm.isTemplateAtom(i))
+      {
+         ad.type = AtomDesc::TYPE_PSEUDO;
+         ad.pseudo.readString(bm.getTemplateAtom(i), true);
+      }
       else if (atomNumber < 0 || atomNumber == ELEM_RSITE)
          ad.type = AtomDesc::TYPE_QUERY;
       else
@@ -1512,7 +1603,7 @@ void MoleculeRenderInternal::_initAtomData ()
 
       valence = bm.getExplicitValence(i);
 
-      if (!bm.isRSite(i) && !bm.isPseudoAtom(i)) {
+      if (!bm.isRSite(i) && !bm.isPseudoAtom(i) && !bm.isTemplateAtom(i)) {
          radical = bm.getAtomRadical_NoThrow(i, -1);
          if (!bm.isQueryMolecule())
             ad.implicit_h = bm.asMolecule().getImplicitH_NoThrow(i, 0);
@@ -1684,7 +1775,7 @@ void MoleculeRenderInternal::_renderBondIds ()
          float a2 = atan2(be2.dir.y, be2.dir.x) - 0.1f;
          float a3 = atan2(be.dir.y, be.dir.x) + 0.1f;
          _cw.setSingleSource(CWC_DARKGREEN);
-         _cw.drawArc(_ad(be.aid).pos, _settings.bondSpace * 3 + _settings.bondLineWidth, a3, a2);
+         _cw.drawArc(_ad(be.aid).pos, _settings.bondSpace * 3 + _settings.unit, a3, a2);
 
       }
    }
@@ -1785,7 +1876,7 @@ void MoleculeRenderInternal::_renderBonds ()
 void MoleculeRenderInternal::_renderSGroups ()
 {
    for (int i = 0; i < _data.sgroups.size(); ++i) {
-      const SGroup& sg = _data.sgroups[i];
+      const Sgroup& sg = _data.sgroups[i];
       for (int j = 0; j < sg.ticount; ++j)
          _cw.drawTextItemText(_data.textitems[j + sg.tibegin]);
       for (int j = 0; j < sg.gicount; ++j)
@@ -1943,7 +2034,7 @@ float MoleculeRenderInternal::_getBondOffset (int aid, const Vec2f& pos, const V
       if (_clipRayBox(offset, pos, dir, item.bbp, item.bbsz, bondWidth))
          maxOffset = __max(maxOffset, offset);
    }
-   return maxOffset + _settings.bondLineWidth * 2;
+   return maxOffset + _settings.unit * 2;
 }
 
 void MoleculeRenderInternal::_calculateBondOffset ()
@@ -2022,13 +2113,34 @@ void MoleculeRenderInternal::_initBondData ()
       d.length = d.dir.length();
       d.dir.normalize();
       d.norm.set(-d.dir.y, d.dir.x);
-      d.isShort = d.length < (_settings.bondSpace + _settings.bondLineWidth) * 2;
+      d.isShort = d.length < (_settings.bondSpace + _settings.bondLineWidth) * 2; // TODO: check
 
       d.stereodir = _mol->getBondDirection(i);
       d.cistrans = _mol->cis_trans.isIgnored(i);
       int ubid = _bondMappingInv.size() > i ? _bondMappingInv.at(i) : i;
       if (_data.reactingCenters.size() > ubid)
          d.reactingCenter = _data.reactingCenters[ubid];
+   }
+}
+
+void MoleculeRenderInternal::_initBoldStereoBonds ()
+{
+   if (!_opt.boldBondDetection)
+      return;
+   for (int i = _mol->edgeBegin(); i < _mol->edgeEnd(); i = _mol->edgeNext(i)) {
+      BondDescr &d = _bd(i);
+      const Vertex& v1 = _mol->getVertex(d.beg);
+      const Vertex& v2 = _mol->getVertex(d.end);
+      bool hasNeighboringUpBond1 = false;
+      for (int j = v1.neiBegin(); j < v1.neiEnd(); j = v1.neiNext(j))
+         if (v1.neiEdge(j) != i && _bd(v1.neiEdge(j)).stereodir == BOND_UP && _bd(v1.neiEdge(j)).end == d.beg)
+            hasNeighboringUpBond1 = true;
+      bool hasNeighboringUpBond2 = false;
+      for (int j = v2.neiBegin(); j < v2.neiEnd(); j = v2.neiNext(j))
+         if (v2.neiEdge(j) != i && _bd(v2.neiEdge(j)).stereodir == BOND_UP && _bd(v2.neiEdge(j)).end == d.end)
+            hasNeighboringUpBond2 = true;
+      if (hasNeighboringUpBond1 && hasNeighboringUpBond2)
+         d.stereodir = BOND_STEREO_BOLD;
    }
 }
 
@@ -2121,14 +2233,22 @@ void MoleculeRenderInternal::_drawAtom (const AtomDesc& desc)
 #endif
 
    _cw.setSingleSource(desc.color);
-   for (int i = 0; i < desc.ticount; ++i)
-      _cw.drawTextItemText(_data.textitems[i + desc.tibegin]);
+   for (int i = 0; i < desc.ticount; ++i) {
+      if (desc.hcolorSet)
+         _cw.drawTextItemText(_data.textitems[i + desc.tibegin], desc.hcolor);
+      else
+         _cw.drawTextItemText(_data.textitems[i + desc.tibegin]);
+   }
    for (int i = 0; i < desc.attachmentPointCount; ++i)
       _cw.drawAttachmentPoint(_data.attachmentPoints[desc.attachmentPointBegin + i]);
    for (int i = 0; i < desc.rSiteAttachmentIndexCount; ++i)
       _cw.drawRSiteAttachmentIndex(_data.rSiteAttachmentIndices[desc.rSiteAttachmentIndexBegin + i]);
-   for (int i = 0; i < desc.gicount; ++i)
-      _cw.drawGraphItem(_data.graphitems[i + desc.gibegin]);
+   for (int i = 0; i < desc.gicount; ++i) {
+      if (desc.hcolorSet)
+         _cw.drawGraphItem(_data.graphitems[i + desc.gibegin], desc.hcolor);
+      else
+         _cw.drawGraphItem(_data.graphitems[i + desc.gibegin]);
+   }
 }
 
 void MoleculeRenderInternal::_writeQueryAtomToString (Output& output, int aid)
@@ -2209,12 +2329,24 @@ void MoleculeRenderInternal::_writeQueryModifier (Output& output, int aid)
             output.printf("s%i", subst);
       }
 
+      if (qa.hasConstraint(QueryMolecule::ATOM_SUBSTITUENTS_AS_DRAWN))
+      {
+         needDelimiter = _writeDelimiter(needDelimiter, output);
+         output.printf("s*");
+      }
+
       if (qa.hasConstraint(QueryMolecule::ATOM_RING_BONDS))
       {
          int ringBondCount = qmol.getAtomRingBondsCount(aid);
          needDelimiter = _writeDelimiter(needDelimiter, output);
          if (ringBondCount >= 0)
             output.printf("rb%i", ringBondCount);
+      }
+
+      if (qa.hasConstraint(QueryMolecule::ATOM_RING_BONDS_AS_DRAWN))
+      {
+         needDelimiter = _writeDelimiter(needDelimiter, output);
+         output.printf("rb*");
       }
 
       if (qa.hasConstraint(QueryMolecule::ATOM_UNSATURATION))
@@ -2490,7 +2622,7 @@ int MoleculeRenderInternal::_findClosestCircle (Vec2f& p, int aid, float radius,
          p.copy(q);
       }
       q.add(ad.pos);
-      //_cw.setLineWidth(_settings.bondLineWidth);
+      //_cw.setLineWidth(_settings.unit);
       //_cw.setSingleSource(CWC_BLUE);
       //_cw.drawCircle(q, radius);
 
@@ -2523,7 +2655,7 @@ void MoleculeRenderInternal::_preparePseudoAtom (int aid, int color, bool highli
    _cw.setTextItemSize(fake, ad.pos);
    float xpos = fake.bbp.x,
       width = fake.bbsz.x,
-      offset = _settings.bondLineWidth/2,
+      offset = _settings.unit/2,
       totalwdt = 0,
       upshift = -0.6f,
       downshift = 0.2f,
@@ -2726,7 +2858,7 @@ void MoleculeRenderInternal::_prepareLabelText (int aid)
                   shift = __min(shift, (item.bbsz.x + label.bbsz.x) / 2 / fabs(be.dir.x));
                if (fabs(be.dir.y) > 1e-3)
                   shift = __min(shift, (item.bbsz.y + label.bbsz.y) / 2 / fabs(be.dir.y));
-               shift += _settings.bondLineWidth;
+               shift += _settings.unit;
                item.bbp.addScaled(be.dir, shift);
                ti.bbp.addScaled(be.dir, shift);
                be.offset = shift + item.radius;
@@ -2755,7 +2887,7 @@ void MoleculeRenderInternal::_prepareLabelText (int aid)
       if (!bm.isQueryMolecule()) {
          int implicit_h = 0;
 
-         if (!bm.isRSite(aid) && !bm.isPseudoAtom(aid))
+         if (!bm.isRSite(aid) && !bm.isPseudoAtom(aid)  && !bm.isTemplateAtom(aid))
             implicit_h = bm.asMolecule().getImplicitH_NoThrow(aid, 0);
 
          if (implicit_h > 0 && _opt.implHVisible)
@@ -2798,9 +2930,9 @@ void MoleculeRenderInternal::_prepareLabelText (int aid)
                itemHydrogen.bbp.set(ad.rightMargin, ad.ypos);
                ad.rightMargin += hydrogenGroupSz.x;
             } else if (ad.hydroPos == HYDRO_POS_UP) {
-               itemHydrogen.bbp.y = ad.pos.y + ad.boundBoxMin.y - hydrogenGroupSz.y - _settings.bondLineWidth;
+               itemHydrogen.bbp.y = ad.pos.y + ad.boundBoxMin.y - hydrogenGroupSz.y - _settings.unit;
             } else if (ad.hydroPos == HYDRO_POS_DOWN) {
-               itemHydrogen.bbp.y = ad.pos.y + ad.boundBoxMax.y + _settings.bondLineWidth;
+               itemHydrogen.bbp.y = ad.pos.y + ad.boundBoxMax.y + _settings.unit;
             } else {
                throw Error("hydrogen position value invalid");
             }
@@ -2862,7 +2994,7 @@ void MoleculeRenderInternal::_prepareLabelText (int aid)
       // radical
       int radical = -1;
 
-      if (!bm.isRSite(aid) && !bm.isPseudoAtom(aid))
+      if (!bm.isRSite(aid) && !bm.isPseudoAtom(aid) && !bm.isTemplateAtom(aid))
          radical = bm.getAtomRadical_NoThrow(aid, -1);
 
       if (radical > 0)
@@ -2870,7 +3002,7 @@ void MoleculeRenderInternal::_prepareLabelText (int aid)
          const TextItem& label = _data.textitems[tilabel];
          Vec2f ltc(label.bbp);
 
-         if (radical == RADICAL_DOUPLET)
+         if (radical == RADICAL_DOUBLET)
          {
             giRadical = _pushGraphItem(ad, RenderItem::RIT_RADICAL, color, highlighted);
             GraphItem& itemRadical = _data.graphitems[giRadical];
@@ -2975,7 +3107,7 @@ void MoleculeRenderInternal::_prepareLabelText (int aid)
          // label hidden - position stereo group label independently
          Vec2f p;
          bondEndRightToStereoGroupLabel = _findClosestBox(p, aid,
-            itemStereoGroup.bbsz, _settings.bondLineWidth);
+            itemStereoGroup.bbsz, _settings.unit);
 
          p.addScaled(itemStereoGroup.bbsz, -0.5);
          itemStereoGroup.bbp.copy(p);
@@ -3001,7 +3133,7 @@ void MoleculeRenderInternal::_prepareLabelText (int aid)
       else
       {
          Vec2f p;
-         _findClosestBox(p, aid, itemAAM.bbsz, _settings.bondLineWidth,
+         _findClosestBox(p, aid, itemAAM.bbsz, _settings.unit,
             bondEndRightToStereoGroupLabel);
 
          p.addScaled(itemAAM.bbsz, -0.5);
@@ -3014,7 +3146,7 @@ void MoleculeRenderInternal::_prepareLabelText (int aid)
    QS_DEF(Array<float>, angles);
    QS_DEF(Array<int>, split);
    QS_DEF(Array<int>, rGroupAttachmentIndices);
-   
+
    if (ad.isRGroupAttachmentPoint) {
       // collect the angles between adjacent bonds
       const Vertex& v = bm.getVertex(aid);
@@ -3086,7 +3218,7 @@ void MoleculeRenderInternal::_prepareLabelText (int aid)
       ad.attachmentPointCount = rGroupAttachmentIndices.size();
       for (int j = 0; j < rGroupAttachmentIndices.size(); ++j) {
          RenderItemAttachmentPoint& attachmentPoint = _data.attachmentPoints.push();
-         float offset = __min(__max(_getBondOffset(aid, ad.pos, attachmentDirection[j], _settings.bondLineWidth),0), 0.4f);
+         float offset = __min(__max(_getBondOffset(aid, ad.pos, attachmentDirection[j], _settings.unit),0), 0.4f);
          attachmentPoint.dir.copy(attachmentDirection[j]);
          attachmentPoint.p0.lineCombin(ad.pos, attachmentDirection[j], offset);
          attachmentPoint.p1.lineCombin(ad.pos, attachmentDirection[j], 0.8f);
@@ -3134,7 +3266,7 @@ int MoleculeRenderInternal::_pushTextItem (AtomDesc& ad, RenderItem::TYPE ritype
    return res;
 }
 
-int MoleculeRenderInternal::_pushTextItem (SGroup& sg, RenderItem::TYPE ritype, int color)
+int MoleculeRenderInternal::_pushTextItem (Sgroup& sg, RenderItem::TYPE ritype, int color)
 {
    int res = _pushTextItem(ritype, color, false);
    if (sg.tibegin < 0)
@@ -3175,12 +3307,27 @@ void MoleculeRenderInternal::_drawBond (int b)
    BondDescr& bd = _bd(b);
    const BondEnd& be1 = _be(bd.be1);
    const BondEnd& be2 = _be(bd.be2);
+   const AtomDesc& ad1 = _ad(be1.aid);
+   const AtomDesc& ad2 = _ad(be2.aid);
 
    _cw.setLineWidth(_settings.bondLineWidth);
 
    _cw.setSingleSource(CWC_BASE);
    if (_edgeIsHighlighted(b))
       _cw.setHighlight();
+   else if (ad1.hcolorSet || ad2.hcolorSet) {
+      Vec3f color1, color2;
+      _cw.getColorVec(color1, CWC_BASE);
+      _cw.getColorVec(color2, CWC_BASE);
+      if (ad1.hcolorSet)
+         color1.copy(ad1.hcolor);
+      if (ad2.hcolorSet)
+         color2.copy(ad2.hcolor);
+      if (color1.x == color2.x && color1.y == color2.y && color1.z == color2.z)
+         _cw.setSingleSource(color1);
+      else
+         _cw.setGradientSource(color1, color2, ad1.pos, ad2.pos);
+   }
 
    switch (bd.type)
    {
@@ -3237,6 +3384,7 @@ void MoleculeRenderInternal::_drawBond (int b)
    }
 
    _cw.resetHighlight();
+   _cw.clearPattern(); // destroy the linear gradient pattern if one was used
 
    if (bd.topology > 0)
       _drawTopology(bd);
@@ -3257,7 +3405,7 @@ void MoleculeRenderInternal::_drawTopology (BondDescr& bd)
       throw Error("Unknown topology value");
 
    _cw.setTextItemSize(ti);
-   float shift = (fabs(bd.norm.x * ti.bbsz.x)+fabs(bd.norm.y * ti.bbsz.y)) / 2 + _settings.bondLineWidth;
+   float shift = (fabs(bd.norm.x * ti.bbsz.x)+fabs(bd.norm.y * ti.bbsz.y)) / 2 + _settings.unit;
 
    if (bd.extP < bd.extN)
       shift = shift + bd.extP;
@@ -3277,8 +3425,8 @@ void MoleculeRenderInternal::_drawReactingCenter (BondDescr& bd, int rc)
    Vec2f p[rcNumPnts];
    for (int i = 0; i < rcNumPnts; ++i)
       p[i].copy(bd.center);
-   float alongIntRc = _settings.bondLineWidth, // half interval along for RC_CENTER
-      alongIntMadeBroken = 2 * _settings.bondLineWidth, // half interval between along for RC_MADE_OR_BROKEN
+   float alongIntRc = _settings.unit, // half interval along for RC_CENTER
+      alongIntMadeBroken = 2 * _settings.unit, // half interval between along for RC_MADE_OR_BROKEN
       alongSz = 1.5f * _settings.bondSpace, // half size along for RC_CENTER
       acrossInt = 1.5f * _settings.bondSpace, // half interval across for RC_CENTER
       acrossSz = 3.0f * _settings.bondSpace, // half size across for all
@@ -3286,6 +3434,7 @@ void MoleculeRenderInternal::_drawReactingCenter (BondDescr& bd, int rc)
       radius = _settings.bondSpace; // radius of the circle for RC_UNCHANGED
    int numLines = 0;
 
+   _cw.setLineWidth(_settings.unit);
    switch (rc)
    {
    case RC_NOT_CENTER: // X
@@ -3362,80 +3511,109 @@ void MoleculeRenderInternal::_drawReactingCenter (BondDescr& bd, int rc)
    }
 }
 
+double MoleculeRenderInternal::_getAdjustmentFactor (const int aid, const int anei, const double acos, const double asin,
+                                                     const double tgb, const double csb, const double snb,
+                                                     const double len, const double w, double& csg, double& sng) {
+   csg = csb;
+   sng = snb;
+   bool adjustLeft = acos < 0.99 && acos > -0.99;
+   if (!adjustLeft || _bd(_be(anei).bid).isShort)
+      return -1;
+   const BondDescr& nbd = _bd(_be(anei).bid);
+   if (nbd.type == BOND_DOUBLE && nbd.centered) {
+      if (asin <= 0)
+         return -1;
+      return (len * asin - _settings.bondSpace) / (snb * acos + csb * asin);
+   }
+   if ((_bd(_be(anei).bid).stereodir == BOND_UP && _bd(_be(anei).bid).end == aid) || _bd(_be(anei).bid).stereodir == BOND_STEREO_BOLD) {
+      if (fabs(asin) < 0.01)
+         return -1;
+      double sna = sqrt((1 - acos)/2); // sin(a/2)
+      double csa = (asin > 0 ? 1 : -1) * sqrt((1 + acos)/2); // cos(a/2)
+      double gamma = w / sna;
+      double x = sqrt(len * len + gamma * gamma - 2 * gamma * len * csa);
+      sng = gamma * sna / x;
+      csg = sqrt(1-sng*sng);
+      return x;
+   }
+   if (asin > 0.01)
+      return len/(acos * snb / asin + csb);
+   return -1;
+}
+
+void MoleculeRenderInternal::_adjustAngle (Vec2f& l, const BondEnd& be1, const BondEnd& be2, bool left) {
+   const Vec2f& p1 = _ad(be1.aid).pos;
+   const Vec2f& p2 = _ad(be2.aid).pos;
+   const double len = Vec2f::dist(p1, p2);
+   double w = _settings.bondSpace;
+   double tgb = w / len;
+   double csb = sqrt(1 / (1 + tgb * tgb));
+   double snb = tgb * csb;
+   double sng = 0, csg = 0;
+   double ttr = left ?
+      _getAdjustmentFactor(be2.aid, be2.rnei, be2.rcos, be2.rsin, tgb, csb, snb, len, w, csg, sng):
+      _getAdjustmentFactor(be2.aid, be2.lnei, be2.lcos, be2.lsin, tgb, csb, snb, len, w, csg, sng);
+   if (ttr < 0)
+      return;
+   l.diff(p2, p1);
+   l.normalize();
+   l.scale(ttr);
+   l.rotateL(left ? sng : -sng, csg);
+   l.add(p1);
+}
+
+void MoleculeRenderInternal::_bondBoldStereo (BondDescr& bd, const BondEnd& be1, const BondEnd& be2) {
+   Vec2f r0(be1.p), l0(be1.p), r1(be2.p), l1(be2.p);
+   double w = _settings.bondSpace;
+   l0.addScaled(bd.norm, -w);
+   r0.addScaled(bd.norm, w);
+   l1.addScaled(bd.norm, -w);
+   r1.addScaled(bd.norm, w);
+
+   _adjustAngle(l1, be1, be2, true);
+   _adjustAngle(r1, be1, be2, false);
+   _adjustAngle(r0, be2, be1, true);
+   _adjustAngle(l0, be2, be1, false);
+   _cw.fillHex(be1.p, r0, r1, be2.p, l1, l0);
+}
+
 void MoleculeRenderInternal::_bondSingle (BondDescr& bd, const BondEnd& be1, const BondEnd& be2)
 {
+   double len = Vec2f::dist(be2.p, be1.p);
+
+   if (bd.stereodir == BOND_STEREO_BOLD) {
+      _bondBoldStereo(bd, be1, be2);
+      return;
+   }
    Vec2f l(be2.p), r(be2.p);
-   float w = _settings.bondSpace + _settings.bondLineWidth;
+   double w = _settings.bondSpace;
    l.addScaled(bd.norm, -w);
    r.addScaled(bd.norm, w);
    bd.extP = bd.extN = w;
 
-   Vec2f dd;
-   dd.diff(be2.p, be1.p);
-   float len = dd.length();
-
-   float lw = _cw.currentLineWidth();
-
-   int stripeCnt = (int)((len) / lw / 2);
+   double lw = _cw.currentLineWidth();
    Vec2f r0(be1.p), l0(be1.p);
    l0.addScaled(bd.norm, -lw/2);
    r0.addScaled(bd.norm, lw/2);
 
-   if (bd.stereodir == 0)
-   {
+   if (bd.stereodir == 0) {
       _cw.drawLine(be1.p, be2.p);
       bd.extP = bd.extN = lw / 2;
-   }
-   else if (bd.stereodir == BOND_UP)
-   {
-      if (_ad(be2.aid).showLabel == false && !bd.isShort)
-      {
-         float tgb = (w - lw) / len;
-         float csb = sqrt(1 / (1 + tgb * tgb));
-         float snb = tgb * csb;
-         float tga, ttl=0.0, ttr=0.0;
-         bool adjustRight = be2.lsin > 0 && be2.lcos < 0.9f && be2.lcos > -0.9f && fabs(be2.lcos) > 0.001f,
-            adjustLeft = be2.rsin > 0 && be2.rcos < 0.9f && be2.rcos > -0.9f && fabs(be2.rcos) > 0.001f;
-
-         if (adjustRight && !_bd(_be(be2.lnei).bid).isShort)
-         {
-            tga = be2.lsin / be2.lcos;
-            const BondDescr& nbd = _bd(_be(be2.lnei).bid);
-            if (nbd.type == BOND_DOUBLE && nbd.centered)
-               ttl = (len * be2.lsin - _settings.bondSpace) / (snb * be2.lcos + csb * be2.lsin);
-            else
-               ttl = len * csb * (1 + tgb * (tgb * tga - 1) / (tgb + tga));
-            r.copy(be1.dir);
-            r.scale(ttl);
-            r.rotateL(-snb, csb);
-            r.add(be1.p);
-         }
-
-         if (adjustLeft && !_bd(_be(be2.rnei).bid).isShort)
-         {
-            tga = be2.rsin / be2.rcos;
-            const BondDescr& nbd = _bd(_be(be2.rnei).bid);
-            if (nbd.type == BOND_DOUBLE && nbd.centered)
-               ttr = (len * be2.rsin - _settings.bondSpace) / (snb * be2.rcos + csb * be2.rsin);
-            else
-               ttr = len * csb * (1 + tgb * (tgb * tga - 1) / (tgb + tga));
-            l.copy(be1.dir);
-            l.scale(ttr);
-            l.rotateL(snb, csb);
-            l.add(be1.p);
-         }
+   } else if (bd.stereodir == BOND_UP) {
+      if (_ad(be2.aid).showLabel == false && !bd.isShort) {
+         _adjustAngle(l, be1, be2, true);
+         _adjustAngle(r, be1, be2, false);
          _cw.fillPentagon(r0, r, be2.p, l, l0);
-      }
-      else
-      {
+      } else {
          _cw.fillQuad(r0, r, l, l0);
       }
-   }
-   else if (bd.stereodir == BOND_DOWN)
+   } else if (bd.stereodir == BOND_DOWN) {
+      int stripeCnt = __max((int)((len) / lw / 2), 4);
       _cw.fillQuadStripes(r0, l0, r, l, stripeCnt);
-   else if (bd.stereodir == BOND_EITHER)
+   } else if (bd.stereodir == BOND_EITHER) {
+      int stripeCnt = __max((int)((len) / lw / 1.5), 5);
       _cw.drawTriangleZigzag(be1.p, r, l, stripeCnt);
-   else
+   } else
       throw Error("Unknown single bond stereo type");
 }
 
@@ -3475,10 +3653,9 @@ float MoleculeRenderInternal::_doubleBondShiftValue (const BondEnd& be, bool rig
 void MoleculeRenderInternal::_prepareDoubleBondCoords (Vec2f* coord, BondDescr& bd, const BondEnd& be1, const BondEnd& be2, bool allowCentered)
 {
    Vec2f ns, ds;
-   ns.scaled(bd.norm, 2 * _settings.bondSpace);
+   ns.scaled(bd.norm, 2 * _settings.bondSpace + (bd.stereodir == BOND_STEREO_BOLD ? 1 : 0) * _settings.bondLineWidth);
 
-   if ((allowCentered && bd.centered) || bd.cistrans)
-   {
+   if (!(bd.stereodir == BOND_STEREO_BOLD) && ((allowCentered && bd.centered) || bd.cistrans)) {
       Vec2f p0, p1, q0, q1;
       ns.scale(0.5f);
       p0.sum(be1.p, ns);
@@ -3486,13 +3663,11 @@ void MoleculeRenderInternal::_prepareDoubleBondCoords (Vec2f* coord, BondDescr& 
       q0.diff(be1.p, ns);
       q1.diff(be2.p, ns);
 
-      if (be1.prolong)
-      {
+      if (be1.prolong) {
          p0.addScaled(be1.dir, _doubleBondShiftValue(be1, true, bd.centered));
          q0.addScaled(be1.dir, _doubleBondShiftValue(be1, false, bd.centered));
       }
-      if (be2.prolong)
-      {
+      if (be2.prolong) {
          p1.addScaled(be2.dir, _doubleBondShiftValue(be2, false, bd.centered));
          q1.addScaled(be2.dir, _doubleBondShiftValue(be2, true, bd.centered));
       }
@@ -3502,14 +3677,11 @@ void MoleculeRenderInternal::_prepareDoubleBondCoords (Vec2f* coord, BondDescr& 
       coord[2].copy(q0);
       coord[3].copy(q1);
       bd.extP = bd.extN = _settings.bondSpace + _settings.bondLineWidth / 2;
-   }
-   else
-   {
-      bd.extP = _settings.bondSpace * 2 + _settings.bondLineWidth / 2;
+   } else {
+      bd.extP = ns.length() + _settings.bondLineWidth / 2;
       bd.extN = _settings.bondLineWidth / 2;
 
-      if (!bd.lineOnTheRight)
-      {
+      if (!bd.lineOnTheRight) {
          float t;
          __swap(bd.extP, bd.extN, t);
          ns.negate();
@@ -3520,15 +3692,13 @@ void MoleculeRenderInternal::_prepareDoubleBondCoords (Vec2f* coord, BondDescr& 
       p1.sum(be2.p, ns);
 
       float cs;
-      if (!_ad(be1.aid).showLabel)
-      {
+      if (!_ad(be1.aid).showLabel) {
          cs = bd.lineOnTheRight ? be1.rcos : be1.lcos;
          if (fabs(cs) < _settings.cosineTreshold)
             p0.addScaled(be1.dir, _settings.bondSpace * _ctghalf(cs) * 2);
       }
 
-      if (!_ad(be2.aid).showLabel)
-      {
+      if (!_ad(be2.aid).showLabel) {
          cs = bd.lineOnTheRight ? be2.lcos : be2.rcos;
          if (fabs(cs) < _settings.cosineTreshold)
             p1.addScaled(be2.dir, _settings.bondSpace * _ctghalf(cs) * 2);
@@ -3552,7 +3722,7 @@ void MoleculeRenderInternal::_drawStereoCareBox (BondDescr& bd, const BondEnd& b
          Vec2f p0, p1, p2, p3;
       p0.lineCombin(be1.p, bd.dir, (bd.length - _settings.stereoCareBoxSize) / 2);
       p0.addScaled(bd.norm, -_settings.stereoCareBoxSize / 2);
-      bd.extP = bd.extN = _settings.stereoCareBoxSize / 2 + _settings.bondLineWidth / 2;
+      bd.extP = bd.extN = _settings.stereoCareBoxSize / 2 + _settings.unit / 2;
       if (!bd.centered)
       {
          float shift = Vec2f::dot(ns,bd.norm);
@@ -3564,6 +3734,7 @@ void MoleculeRenderInternal::_drawStereoCareBox (BondDescr& bd, const BondEnd& b
       p2.lineCombin(p1, bd.norm, _settings.stereoCareBoxSize);
       p3.lineCombin(p0, bd.norm, _settings.stereoCareBoxSize);
 
+      _cw.setLineWidth(_settings.unit);
       _cw.drawQuad(p0, p1, p2, p3);
 
    }
@@ -3573,7 +3744,10 @@ void MoleculeRenderInternal::_bondDouble (BondDescr& bd, const BondEnd& be1, con
 {
    Vec2f coord[4];
    _prepareDoubleBondCoords(coord, bd, be1, be2, true);
-   if (bd.cistrans) {
+   if (bd.stereodir == BOND_STEREO_BOLD) {
+      _bondBoldStereo(bd, be1, be2);
+      _cw.drawLine(coord[2], coord[3]);
+   } else if (bd.cistrans) {
       _cw.drawLine(coord[0], coord[3]);
       _cw.drawLine(coord[2], coord[1]);
    } else {

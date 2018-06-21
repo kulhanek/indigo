@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -26,10 +26,12 @@
 
 namespace indigo {
 
+DECL_EXCEPTION(ArrayError);
+
 template <typename T> class Array
 {
 public:
-   DEF_ERROR("array");
+   DECL_TPL_ERROR(ArrayError);
 
    explicit Array ()
    {
@@ -54,6 +56,10 @@ public:
 
    void reserve (int to_reserve)
    {
+      // Addtional check for unexpectedly large memory allocations (larger than 512 Mb)
+      if (to_reserve * sizeof(T) >= 1 << 30)
+         throw Error("memory to reserve (%d x %d) is large than allowed threshold", to_reserve, (int)sizeof(T));
+
       if (to_reserve <= 0)
          throw Error("to_reserve = %d", to_reserve);
 
@@ -178,15 +184,13 @@ public:
       return ::memcmp(_array, other._array, _length * sizeof(T));
    }
 
-   void remove (int idx)
+   void remove (int idx, int span = 1)
    {
-      if (idx < 0 || idx - _length >= 0)
-         throw Error("remove(): invalid index %d (size=%d)", idx, _length);
+      if (idx < 0 || idx - _length - span + 1 >= 0)
+         throw Error("remove(): invalid index %d with span %d (size=%d)", idx, span, _length);
 
-      if (idx < _length - 1)
-         memmove(_array + idx, _array + idx + 1, sizeof(T) * (_length - idx - 1));
-
-      _length--;
+      memmove(_array + idx, _array + idx + span, sizeof(T) * (_length - idx - span));
+      _length -= span;
    }
 
    void remove_replace (int idx)
@@ -212,6 +216,21 @@ public:
             return i;
 
        return -1;
+   }
+
+   int count (const T &value) const
+   {
+      return count(0, _length, value);
+   }
+
+   int count (int from, int to, const T &value) const
+   {
+      int cnt = 0;
+      for (int i = from; i < to; i++)
+         if (_array[i] == value)
+            cnt++;
+
+       return cnt;
    }
 
    void swap (int idx1, int idx2)
@@ -266,6 +285,22 @@ public:
          throw Error("stack underflow");
 
       return _array[_length - 1];
+   }
+
+   T & top (int offset)
+   {
+      if (_length - offset <= 0)
+         throw Error("stack underflow");
+
+      return _array[_length - 1 - offset];
+   }
+
+   const T & top (int offset) const
+   {
+      if (_length - offset <= 0)
+         throw Error("stack underflow");
+
+      return _array[_length - 1 - offset];
    }
 
    void resize (int newsize)
@@ -429,9 +464,8 @@ public:
    {
       this->qsort(0, _length - 1, cmp, context);
    }
-   
-   // Array<char>-specific
 
+   // Array<char>-specific
    void appendString (const char *str, bool keep_zero)
    {
       int len = (int)strlen(str);
@@ -489,6 +523,7 @@ protected:
 
 private:
    Array (const Array &); // no implicit copy
+   Array<int>& operator= (const Array<int>& right); // no copy constructor
 
    template <typename T1, typename T2>
    class _CmpFunctorCaller

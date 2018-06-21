@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2009-2011 GGA Software Services LLC
+ * Copyright (C) 2009-2015 EPAM Systems
  * 
  * This file is part of Indigo toolkit.
  * 
@@ -13,17 +13,23 @@
  ***************************************************************************/
 
 #include "reaction/rsmiles_saver.h"
-#include "reaction/reaction.h"
-#include "reaction/query_reaction.h"
 
-#include "molecule/smiles_saver.h"
 #include "base_cpp/output.h"
+#include "molecule/canonical_smiles_saver.h"
 #include "molecule/elements.h"
+#include "molecule/smiles_saver.h"
+#include "reaction/query_reaction.h"
+#include "reaction/reaction.h"
 
 using namespace indigo;
 
+IMPL_ERROR(RSmilesSaver, "reaction SMILES saver");
+
+CP_DEF(RSmilesSaver);
+
 RSmilesSaver::RSmilesSaver (Output &output) :
 _output(output),
+CP_INIT,
 TL_CP_GET(_written_atoms),
 TL_CP_GET(_written_bonds),
 TL_CP_GET(_ncomp)
@@ -88,17 +94,13 @@ void RSmilesSaver::_writeMolecule (int i)
 
 void RSmilesSaver::_saveReaction ()
 {
-   int i;
-
    _written_atoms.clear();
    _written_bonds.clear();
    _ncomp.clear();
    _comma = false;
 
    bool dot = false;
-
-   for (i = _brxn->reactantBegin(); i != _brxn->reactantEnd(); i = _brxn->reactantNext(i))
-   {
+   for (auto i : _brxn->reactants) {
       if (dot)
          _output.writeChar('.');
       else
@@ -110,8 +112,7 @@ void RSmilesSaver::_saveReaction ()
    _output.writeString(">");
 
    dot = false;
-   for (i = _brxn->catalystBegin(); i != _brxn->catalystEnd(); i = _brxn->catalystNext(i))
-   {
+   for (auto i : _brxn->catalysts) {
       if (dot)
          _output.writeChar('.');
       else
@@ -123,8 +124,7 @@ void RSmilesSaver::_saveReaction ()
    _output.writeString(">");
 
    dot = false;
-   for (i = _brxn->productBegin(); i != _brxn->productEnd(); i = _brxn->productNext(i))
-   {
+   for (auto i : _brxn->products) {
       if (dot)
          _output.writeChar('.');
       else
@@ -329,7 +329,7 @@ void RSmilesSaver::_writeRadicals ()
 
       if (radical == RADICAL_SINGLET)
          _output.writeString("^3:");
-      else if (radical == RADICAL_DOUPLET)
+      else if (radical == RADICAL_DOUBLET)
          _output.writeString("^1:");
       else // RADICAL_TRIPLET
          _output.writeString("^4:");
