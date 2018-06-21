@@ -1,6 +1,9 @@
-CMakeFiles
-MakeFile
-Makefile
+*.mod
 *.cmake
-lib/
 CMakeCache.txt
+CMakeFiles
+DartConfiguration.tcl
+Makefile
+/bin/
+/lib/
+/include/
