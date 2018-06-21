@@ -3171,4 +3171,6 @@
 /scratch/kulhanek/Development/linux/thirdparty/indigo/1.1/src/utils/legio/legio.sh
 /scratch/kulhanek/Development/linux/thirdparty/indigo/1.1/src/README.txt
 /scratch/kulhanek/Development/linux/thirdparty/indigo/1.1/CMakeLists.txt
+CMakeLists.txt
+README.md
 src/CMakeLists.txt

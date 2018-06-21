@@ -17,7 +17,7 @@ SET(LIBS_STATIC       OFF CACHE BOOL "Should the static version of the library b
 # ==============================================================================
 
 # define project version -------------------------
-SET(INDIGO_VERSION 1.1)
+SET(INDIGO_VERSION 1.2.3)
 
 # what languages we use --------------------------
 ENABLE_LANGUAGE(C)
@@ -40,10 +40,9 @@ ENDIF(NOT DEVELOPMENT_ROOT)
 # ==============================================================================
 
 # zlib -------------------------------------------
-SET(ZLIB_ROOT ${DEVELOPMENT_ROOT}/thirdparty/zlib/1.2.7)
-INCLUDE_DIRECTORIES(${ZLIB_ROOT}/src)
-LINK_DIRECTORIES(${ZLIB_ROOT}/lib)
-SET(ZLIB_LIB zlib)
+FIND_PACKAGE(ZLIB)
+INCLUDE_DIRECTORIES(${ZLIB_INCLUDE_DIRS})
+SET(ZLIB_LIB ${ZLIB_LIBRARIES})
 
 # ==============================================================================
 # output directories -----------------------------------------------------------
@@ -80,8 +79,8 @@ IF(NOT DEFINED COMPOSITE_PROJECT)
     SET(CMAKE_C_FLAGS_RELEASE "-O2")
     SET(CMAKE_C_FLAGS_DEBUG "-O0 -g")
     # C++ options
-    SET(CMAKE_CXX_FLAGS_RELEASE "-O2")
-    SET(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
+    SET(CMAKE_CXX_FLAGS_RELEASE "-O2 -std=gnu++11")
+    SET(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -std=gnu++11")
 
     #SET(CMAKE_BUILD_TYPE Release)
     SET(CMAKE_BUILD_TYPE Debug)
